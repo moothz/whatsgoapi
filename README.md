@@ -59,21 +59,53 @@ npm install
 O script permite chamar qualquer função da API via linha de comando. Substitua `meubot` pelo identificador da instância que deseja usar.
 
 ```bash
-# 1. Listar todas as instâncias no servidor (Comando padrão)
-node query-whatsgo.js
+# 1. Criar e Conectar uma nova instância rapidamente
+# Formato: node query-whatsgo.js <NOME> instanceCreate <TELEFONE> <PORTA_WEBHOOK> [pair]
+node query-whatsgo.js meubot instanceCreate 5511987654321 3000
 
-# 2. Conectar uma instância (inicia o processo de login)
-node query-whatsgo.js meubot instanceConnect
-
-# 3. Obter o QR Code (se não estiver conectado)
-node query-whatsgo.js meubot instanceQR
-
-# 4. Verificar o status da instância
+# 2. Verificar o status da instância
 node query-whatsgo.js meubot instanceStatus
 
-# 5. Enviar uma mensagem de texto
+# 3. Deletar uma instância
+node query-whatsgo.js meubot instanceDelete
+
+# 4. Enviar uma mensagem de texto
 node query-whatsgo.js meubot sendText 5511999999999@s.whatsapp.net "Olá de WhatsgoAPI!"
 ```
+
+### 🔗 Gerenciamento de Instâncias e Webhooks
+
+Para testar o fluxo de eventos (mensagens recebidas, status de conexão, etc.), você pode usar o listener incluso:
+
+1. **Inicie o listener em um terminal** (opcional):
+   ```bash
+   node listen-whatsgo.js 3322
+   ```
+
+2. **Crie a instância**:
+   ```bash
+   # Com webhook (apontando para o listener acima):
+   node query-whatsgo.js meubot instanceCreate 5511987654321 3322
+
+   # Sem webhook (padrão se omitir a porta):
+   node query-whatsgo.js meubot instanceCreate 5511987654321
+   ```
+
+3. **Conexão via Pairing Code (sem QR Code)**:
+   Se preferir usar o código de pareamento de 8 dígitos (o parâmetro da porta é opcional, use `0` para pular):
+   ```bash
+   node query-whatsgo.js meubot instanceCreate 5511987654321 0 pair
+   ```
+
+> [!TIP]
+> O argumento da porta no `instanceCreate` é opcional. Se não for informado, a instância será criada **sem webhook** configurado.
+
+> [!IMPORTANT]
+> **Dica para números brasileiros**:
+> O WhatsApp lida de forma inconsistente com o nono dígito. Se encontrar problemas para conectar ou receber pairing codes, tente:
+> - Com o 9: `5511987654321`
+> - Sem o 9: `551187654321`
+> Tente ambas as variações se a primeira não funcionar imediatamente.
 
 ---
 

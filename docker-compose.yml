@@ -28,6 +28,8 @@ services:
       - ./files:/app/files
       - ./logs:/app/logs
       - ./dbdata:/app/dbdata
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       whatsgoapi-db:
         condition: service_healthy

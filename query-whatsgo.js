@@ -9,31 +9,35 @@
  * <bot>  Nome do bot definido em bots.json (campo "nome"). Obrigatório.
  *
  * Exemplos:
- *   node query-whatsgo.js ravenavip instanceStatus
- *   node query-whatsgo.js ravenavip groupInfo 120363000000000001@g.us
- *   node query-whatsgo.js ravenavip userInfo 5599999999999@s.whatsapp.net
- *   node query-whatsgo.js ravenavip blockList
- *   node query-whatsgo.js ravenavip listGroups
- *   node query-whatsgo.js ravenavip allInstances
- *   node query-whatsgo.js ravenavip sendText 5599999999999@s.whatsapp.net "Oi tudo bem?"
- *   node query-whatsgo.js ravenavip sendMedia 5599999999999@s.whatsapp.net https://example.com/img.jpg image
- *   node query-whatsgo.js ravenavip sendReaction 120363000@g.us MSG_ID_AQUI 👍
- *   node query-whatsgo.js ravenavip deleteMessage 120363000@g.us MSG_ID_AQUI true
- *   node query-whatsgo.js ravenavip groupLeave 120363000000000001@g.us
- *   node query-whatsgo.js ravenavip groupJoin INVITE_CODE
- *   node query-whatsgo.js ravenavip groupInviteInfo https://chat.whatsapp.com/XXXXXXXX
- *   node query-whatsgo.js ravenavip commonGroups 5599999999999@s.whatsapp.net
- *   node query-whatsgo.js ravenavip downloadMedia '{"imageMessage":{"url":"...","mimetype":"image/jpeg"}}'
- *   node query-whatsgo.js ravenavip profileStatus "Meu novo status"
- *   node query-whatsgo.js ravenavip updatePhoto https://example.com/foto.jpg
- *   node query-whatsgo.js ravenavip groupPhoto 120363000000000001@g.us https://example.com/foto.jpg
- *   node query-whatsgo.js ravenavip groupName 120363000000000001@g.us "Novo Nome do Grupo"
- *   node query-whatsgo.js ravenavip blockUser 5599999999999@s.whatsapp.net
- *   node query-whatsgo.js ravenavip unblockUser 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot instanceStatus
+ *   node query-whatsgo.js mybot groupInfo 120363000000000001@g.us
+ *   node query-whatsgo.js mybot userInfo 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot blockList
+ *   node query-whatsgo.js mybot listGroups
+ *   node query-whatsgo.js mybot allInstances
+ *   node query-whatsgo.js mybot sendText 5599999999999@s.whatsapp.net "Oi tudo bem?"
+ *   node query-whatsgo.js mybot sendMedia 5599999999999@s.whatsapp.net https://example.com/img.jpg image
+ *   node query-whatsgo.js mybot sendReaction 120363000@g.us MSG_ID_AQUI 👍
+ *   node query-whatsgo.js mybot deleteMessage 120363000@g.us MSG_ID_AQUI true
+ *   node query-whatsgo.js mybot groupLeave 120363000000000001@g.us
+ *   node query-whatsgo.js mybot groupJoin INVITE_CODE
+ *   node query-whatsgo.js mybot groupInviteInfo https://chat.whatsapp.com/XXXXXXXX
+ *   node query-whatsgo.js mybot commonGroups 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot downloadMedia '{"imageMessage":{"url":"...","mimetype":"image/jpeg"}}'
+ *   node query-whatsgo.js mybot profileStatus "Meu novo status"
+ *   node query-whatsgo.js mybot updatePhoto https://example.com/foto.jpg
+ *   node query-whatsgo.js mybot groupPhoto 120363000000000001@g.us https://example.com/foto.jpg
+ *   node query-whatsgo.js mybot groupName 120363000000000001@g.us "Novo Nome do Grupo"
+ *   node query-whatsgo.js mybot blockUser 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot unblockUser 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot instanceCreate 55596424307 3322
+ *   node query-whatsgo.js mybot instanceCreate 55596424307 3322 pair
  *   node query-whatsgo.js mybot instanceConnect
- *   node query-whatsgo.js mybot instancePair 55999999999
+ *   node query-whatsgo.js mybot instanceConnect http://host.docker.internal:3322 55596424307 pair
+ *   node query-whatsgo.js mybot instancePair 55596424307
  *   node query-whatsgo.js mybot instanceQR
  *   node query-whatsgo.js mybot instanceLogout
+ *   node query-whatsgo.js mybot instanceDelete
  *   node query-whatsgo.js mybot getCurrentGroups
  */
 
@@ -43,6 +47,8 @@ if (process.argv.includes("--json")) console.log = () => {};
 require("dotenv").config();
 if (process.argv.includes("--json")) console.log = _log;
 const axios = require("axios");
+const qrcodeTerminal = require("qrcode-terminal");
+const { v4: uuidv4 } = require("uuid");
 
 // ─── Configuração ──────────────────────────────────────────────────────────────
 const BASE_URL = (process.env.WHATS_GO_API_URL || "http://localhost:9800").replace(/\/$/, "");
@@ -136,6 +142,12 @@ async function apiDelete(endpoint, body = {}, useGlobalKey = false) {
 	return res.data;
 }
 
+async function apiDeletePath(endpoint, useGlobalKey = false) {
+	const headers = useGlobalKey ? HEADERS_GLOBAL : HEADERS_INSTANCE;
+	const res = await client.delete(endpoint, { headers });
+	return res.data;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 function dump(label, data) {
 	if (isJsonOutput) {
@@ -168,41 +180,138 @@ async function instanceStatus() {
 }
 
 /** POST /instance/connect — Conecta a instância */
-async function instanceConnect(webhookUrl = null) {
-	const url =
-		webhookUrl ??
-		`${process.env.WHATSGO_WEBHOOK_HOST}:${process.env.WHATSGO_WEBHOOK_PORT}/webhook/whatsgo/debug`;
-	dump(
-		"instanceConnect",
-		await apiPost("/instance/connect", {
-			webhookUrl: url,
-			subscribe: [
-				"MESSAGE",
-				"SEND_MESSAGE",
-				"READ_RECEIPT",
-				"PRESENCE",
-				"CHAT_PRESENCE",
-				"CALL",
-				"CONNECTION",
-				"LABEL",
-				"CONTACT",
-				"GROUP",
-				"NEWSLETTER",
-				"QRCODE"
-			],
-			websocketEnable: ""
-		})
-	);
+async function instanceConnect(webhookUrl = null, phone = null, usePairing = false) {
+	let url = webhookUrl;
+	
+	// Se não passou URL e não é explicitamente "none", usa o padrão de debug
+	if (url === null) {
+		url = `${process.env.WHATSGO_WEBHOOK_HOST || "http://host.docker.internal"}:${process.env.WHATSGO_WEBHOOK_PORT || "3000"}/webhook/whatsgo/debug`;
+	} else if (url === "none" || url === "0") {
+		url = ""; // Desabilita webhook
+	}
+	
+	if (!isJsonOutput) {
+		if (url) console.log(`[Connect] Iniciando conexão para "${BOT_NOME}" com webhook: ${url}`);
+		else console.log(`[Connect] Iniciando conexão para "${BOT_NOME}" SEM webhook.`);
+	}
+	
+	const connectRes = await apiPost("/instance/connect", {
+		webhookUrl: url,
+		phone: phone,
+		subscribe: [
+			"MESSAGE",
+			"SEND_MESSAGE",
+			"READ_RECEIPT",
+			"PRESENCE",
+			"CHAT_PRESENCE",
+			"CALL",
+			"CONNECTION",
+			"LABEL",
+			"CONTACT",
+			"GROUP",
+			"NEWSLETTER",
+			"QRCODE"
+		],
+		websocketEnable: ""
+	});
+
+	if (isJsonOutput) {
+		dump("instanceConnect", connectRes);
+		return;
+	}
+
+	console.log(`[Connect] Resposta:`, connectRes.message);
+
+	// Se for pairing code, solicita agora com retentativa
+	if (usePairing && phone) {
+		if (!isJsonOutput) console.log(`[Connect] Aguardando 10s para inicialização da instância...`);
+		await new Promise((r) => setTimeout(r, 10000));
+
+		let pCode = null;
+		for (let i = 0; i < 5; i++) {
+			if (!isJsonOutput) console.log(`[Connect] Tentativa ${i + 1}/5: Solicitando Pairing Code para ${phone}...`);
+			pCode = await instancePair(phone);
+			if (pCode && pCode !== "ERRO") break;
+			if (!isJsonOutput) console.log(`[Connect] Ainda não pronto. Aguardando mais 5s...`);
+			await new Promise((r) => setTimeout(r, 5000));
+		}
+	}
+
+	// Inicia Polling
+	console.log("[Connect] Aguardando " + (usePairing ? "Conexão" : "QR Code") + "...");
+	let lastQR = "";
+	let attempts = 0;
+	const maxAttempts = 40; // ~2 minutos
+
+	while (attempts < maxAttempts) {
+		attempts++;
+		try {
+			// 1. Verifica Status
+			const status = await apiGet("/instance/status");
+			if (status.data?.LoggedIn) {
+				console.log(`\n✅ Instância "${BOT_NOME}" CONECTADA com sucesso!`);
+				console.log(`JID: ${status.data.myJid || "vazio"}`);
+				return;
+			}
+
+			// 2. Verifica QR (apenas se não for pairing)
+			if (!usePairing) {
+				const qrRes = await apiGet("/instance/qr").catch(() => null);
+				if (qrRes && qrRes.data?.Code && qrRes.data.Code !== lastQR) {
+					lastQR = qrRes.data.Code;
+					console.log("\n" + "─".repeat(40));
+					console.log("NOVO QR CODE RECEBIDO:");
+					qrcodeTerminal.generate(lastQR, { small: true });
+					console.log("Escaneie o código acima no seu WhatsApp.");
+					console.log("─".repeat(40) + "\n");
+				}
+			}
+		} catch (e) {
+			// Silencia erros de polling
+		}
+
+		process.stdout.write(".");
+		await new Promise((r) => setTimeout(r, 3000));
+	}
+
+	console.log("\n[Aviso] Tempo limite de espera atingido. Verifique o status manualmente.");
 }
 
 /** POST /instance/pair — Solicita pairing code */
 async function instancePair(phone) {
-	dump("instancePair", await apiPost("/instance/pair", { phone }));
+	if (!phone) {
+		console.error("[ERRO] Telefone obrigatório para pairing.");
+		return null;
+	}
+	try {
+		const res = await apiPost("/instance/pair", { phone });
+		const code = res.data?.PairingCode;
+		
+		if (!isJsonOutput) {
+			if (code) {
+				console.log(`\nPairing Code para ${phone}:`);
+				console.log("─".repeat(20));
+				console.log(`   ${code}`);
+				console.log("─".repeat(20) + "\n");
+			}
+		} else {
+			dump("instancePair", res);
+		}
+		return code || "ERRO";
+	} catch (e) {
+		if (!isJsonOutput) console.warn(`[Aviso] Falha ao solicitar pairing code: ${e.message}`);
+		return "ERRO";
+	}
 }
 
 /** GET /instance/qr — Retorna QR Code atual */
 async function instanceQR() {
-	dump("instanceQR", await apiGet("/instance/qr", {}, false));
+	const res = await apiGet("/instance/qr");
+	if (!isJsonOutput && res.data?.Code) {
+		qrcodeTerminal.generate(res.data.Code, { small: true });
+	} else {
+		dump("instanceQR", res);
+	}
 }
 
 /** DELETE /instance/logout — Faz logout da instância */
@@ -210,29 +319,68 @@ async function instanceLogout() {
 	dump("instanceLogout", await apiDelete("/instance/logout", {}, false));
 }
 
+/** DELETE /instance/delete/:id — Deleta instância (Admin) */
+async function instanceDelete(id) {
+	const targetName = id || BOT_NOME;
+	if (!targetName) {
+		console.error("[ERRO] Nome ou ID da instância não informado.");
+		return;
+	}
+
+	if (!isJsonOutput) console.log(`[Delete] Buscando UUID para a instância "${targetName}"...`);
+
+	try {
+		const all = await apiGet("/instance/all", {}, true);
+		const instance = all.data?.find((i) => i.name === targetName || i.id === targetName);
+
+		if (!instance) {
+			console.error(`[ERRO] Instância "${targetName}" não encontrada.`);
+			return;
+		}
+
+		const uuid = instance.id;
+		if (!isJsonOutput) console.log(`[Delete] UUID encontrado: ${uuid}. Deletando...`);
+		
+		dump("instanceDelete", await apiDeletePath(`/instance/delete/${uuid}`, true));
+	} catch (e) {
+		parseError(e);
+	}
+}
+
 /** POST /instance/create — Cria nova instância (usa GlobalKey) */
-async function instanceCreate(name, webhookUrl) {
-	dump(
-		"instanceCreate",
-		await apiPost(
-			"/instance/create",
-			{
-				name,
-				webhookUrl,
-				webhookEvents: [
-					"MESSAGE",
-					"PRESENCE",
-					"CALL",
-					"CONNECTION",
-					"QRCODE",
-					"CONTACT",
-					"GROUP",
-					"NEWSLETTER"
-				]
-			},
-			true
-		)
+async function instanceCreate(name, phone = null, port = null, usePairing = false) {
+	if (!name) {
+		console.error("[ERRO] Nome da instância é obrigatório.");
+		return;
+	}
+
+	if (!isJsonOutput) console.log(`[Create] Criando instância "${name}"...`);
+
+	const token = uuidv4();
+	const instanceId = uuidv4();
+	const createRes = await apiPost(
+		"/instance/create",
+		{
+			name,
+			instanceId,
+			token
+		},
+		true
 	);
+
+	if (!isJsonOutput) {
+		console.log("Instância criada com sucesso.");
+		dump("instanceCreate", createRes);
+	}
+
+	// Se passou telefone, já tenta conectar
+	if (phone) {
+		let webhookUrl = "none"; // Padrão: sem webhook se não informar porta
+		if (port && port !== "0" && port !== "none") {
+			webhookUrl = `http://host.docker.internal:${port}`;
+		}
+		await instanceConnect(webhookUrl, phone, usePairing);
+	}
 }
 
 /** PUT /instance/:id/advanced-settings — Configurações avançadas da instância */
@@ -397,11 +545,14 @@ const FUNCTIONS = {
 	allInstances: () => allInstances(),
 	listBots: () => allInstances(),
 	instanceStatus: () => instanceStatus(),
-	instanceConnect: ([webhookUrl]) => instanceConnect(webhookUrl),
+	instanceConnect: ([webhookUrl, phone, pairing]) =>
+		instanceConnect(webhookUrl, phone, pairing === "pair" || pairing === "true"),
 	instancePair: ([phone]) => instancePair(phone),
 	instanceQR: () => instanceQR(),
 	instanceLogout: () => instanceLogout(),
-	instanceCreate: ([name, webhookUrl]) => instanceCreate(name, webhookUrl),
+	instanceDelete: ([id]) => instanceDelete(id),
+	instanceCreate: ([phone, port, pairing]) =>
+		instanceCreate(BOT_NOME, phone, port, pairing === "pair" || pairing === "true"),
 	instanceAdvSettings: ([instanceId]) => instanceAdvSettings(instanceId),
 
 	listGroups: () => listGroups(),
