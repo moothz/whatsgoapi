@@ -1,0 +1,64 @@
+services:
+  whatsgoapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsgoapi-standalone
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-9800}:8080"
+    environment:
+      SERVER_PORT: 8080
+      GLOBAL_API_KEY: ${GLOBAL_API_KEY:-admin}
+      POSTGRES_HOST: whatsgoapi-db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-whatsgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-whatsgo_db}
+      MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: whatsgoapi-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-zap-media}
+      MINIO_USE_SSL: "false"
+      DATABASE_SAVE_MESSAGES: ${DATABASE_SAVE_MESSAGES:-true}
+      CONNECT_ON_STARTUP: "true"
+      CHECK_USER_EXISTS: "true"
+    volumes:
+      - ./files:/app/files
+      - ./logs:/app/logs
+      - ./dbdata:/app/dbdata
+    depends_on:
+      whatsgoapi-db:
+        condition: service_healthy
+      whatsgoapi-minio:
+        condition: service_started
+
+  whatsgoapi-db:
+    image: postgres:15-alpine
+    container_name: whatsgoapi-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-whatsgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-whatsgo_db}
+    volumes:
+      - whatsgoapi-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-whatsgo} -d ${POSTGRES_DB:-whatsgo_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  whatsgoapi-minio:
+    image: minio/minio
+    container_name: whatsgoapi-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - whatsgoapi-minio-data:/data
+
+volumes:
+  whatsgoapi-db-data:
+  whatsgoapi-minio-data:

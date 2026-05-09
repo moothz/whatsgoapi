@@ -1,0 +1,19 @@
+# Binaries
+build/
+bin/
+
+# Logs
+logs/*.log
+logs/
+
+# Data
+files/
+dbdata/
+data/
+
+# Environment
+.env
+
+# Go workspace
+go.work
+/node_modules

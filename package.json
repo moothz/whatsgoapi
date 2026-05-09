@@ -1,0 +1,13 @@
+{
+  "name": "whatsgoapi-tester",
+  "version": "1.0.0",
+  "description": "Helper script to test WhatsgoAPI",
+  "main": "query-whatsgo.js",
+  "scripts": {
+    "test": "node query-whatsgo.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5"
+  }
+}
