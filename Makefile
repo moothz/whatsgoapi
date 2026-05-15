@@ -42,7 +42,7 @@ restart:
 	docker compose restart
 
 logs:
-	docker compose logs -f whatsgoapi
+	docker compose logs -f --tail 100 whatsgoapi
 
 build:
 	docker compose build whatsgoapi
