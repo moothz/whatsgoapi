@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -290,5 +293,29 @@ func main() {
 	r := setupRouter(db, authDB, sqliteDB, config, exPath)
 
 	logger.LogInfo("Iniciando servidor na porta %s", os.Getenv("SERVER_PORT"))
-	r.Run(":" + os.Getenv("SERVER_PORT"))
+
+	srv := &http.Server{
+		Addr:    ":" + os.Getenv("SERVER_PORT"),
+		Handler: r,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.LogError("listen: %s\n", err)
+		}
+	}()
+
+	// Graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.LogInfo("Sinal de desligamento recebido. Desligando servidor (Graceful Shutdown)...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.LogError("Erro no Server Shutdown: %v", err)
+	}
+
+	logger.LogInfo("Servidor desligado com sucesso.")
 }
