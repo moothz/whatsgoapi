@@ -815,6 +815,12 @@ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte,
 				return nil, errors.New(errMsg)
 			}
 			uploadType = whatsmeow.MediaVideo
+		case "gif":
+			if mimeType != "video/mp4" {
+				errMsg := fmt.Sprintf("Invalid file format: '%s'. Only 'video/mp4' is accepted for gif type", mimeType)
+				return nil, errors.New(errMsg)
+			}
+			uploadType = whatsmeow.MediaVideo
 		case "audio":
 			converterApiUrl := s.config.ApiAudioConverter
 			converterApiKey := s.config.ApiAudioConverterKey
@@ -875,6 +881,19 @@ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte,
 				FileEncSHA256: uploaded.FileEncSHA256,
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uint64(len(fileData))),
+			}}
+			mediaType = "VideoMessage"
+		case "gif":
+			media = &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+				Caption:       proto.String(data.Caption),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				Mimetype:      proto.String(mimeType),
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uint64(len(fileData))),
+				GifPlayback:   proto.Bool(true),
 			}}
 			mediaType = "VideoMessage"
 		case "ptv":
@@ -1026,6 +1045,16 @@ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instanc
 				return nil, errors.New(errMsg)
 			}
 			uploadType = whatsmeow.MediaVideo
+		case "gif":
+			if mimeType != "video/mp4" && mimeType != "image/gif" {
+				errMsg := fmt.Sprintf("Invalid file format: '%s'. Only 'video/mp4' or 'image/gif' are accepted for gif type", mimeType)
+				return nil, errors.New(errMsg)
+			}
+			isGif = true
+			if mimeType == "image/gif" {
+				mimeType = "video/mp4"
+			}
+			uploadType = whatsmeow.MediaVideo
 		case "audio":
 			s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Iniciando conversão de áudio...", instance.Id)
 			converterApiUrl := s.config.ApiAudioConverter
@@ -1091,6 +1120,19 @@ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instanc
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uint64(len(fileData))),
 				GifPlayback:   proto.Bool(isGif),
+			}}
+			mediaType = "VideoMessage"
+		case "gif":
+			media = &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+				Caption:       proto.String(data.Caption),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				Mimetype:      proto.String("video/mp4"),
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uint64(len(fileData))),
+				GifPlayback:   proto.Bool(true),
 			}}
 			mediaType = "VideoMessage"
 		case "ptv":
