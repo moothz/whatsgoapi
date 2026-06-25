@@ -121,5 +121,12 @@ Para testar o fluxo de eventos (mensagens recebidas, status de conexão, etc.), 
 - `make build`: Reconstrói a imagem da API.
 - `make docs`: Gera a documentação Swagger (requer `swag`).
 
+## 🩹 Workarounds
+
+### 1. Correção de Blocklist (LID) - PR #1137
+Para corrigir a manipulação da lista de bloqueados (block/unblock) que utiliza LIDs (Linked Identifiers) no WhatsApp moderno, aplicamos uma modificação personalizada no submódulo `whatsgoapi/whatsmeow-lib/user.go` com base na pull request [#1137 da whatsmeow](https://github.com/tulir/whatsmeow/pull/1137). Essa alteração assegura que:
+- O bloqueio seja enviado incluindo o atributo `pn_jid` com o número de telefone correspondente.
+- A requisição de bloqueio de JIDs do tipo LID no servidor do WhatsApp seja efetuada sem que resulte em erros `400: bad-request`.
+
 ## ⚠️ Importante
 A `GLOBAL_API_KEY` é gerada automaticamente pelo `make setup`. Você pode encontrá-la no seu arquivo `.env` e deve utilizá-la em todos os headers das requisições para autorização (`apiKey`).

@@ -59,7 +59,15 @@ func (m *JIDValidationMiddleware) ValidateJIDFields(fieldNames ...string) gin.Ha
 		modified := false
 		for _, fieldName := range fieldNames {
 			if value, exists := requestData[fieldName]; exists {
-				if strValue, ok := value.(string); ok && strValue != "" {
+				if strValue, ok := value.(string); ok {
+					if strValue == "" {
+						c.JSON(http.StatusBadRequest, gin.H{
+							"error": fmt.Sprintf("%s is required and cannot be empty", fieldName),
+						})
+						c.Abort()
+						return
+					}
+
 					// Validate and normalize the JID
 					normalizedJID, err := utils.CreateJID(strValue)
 					if err != nil {
@@ -76,12 +84,6 @@ func (m *JIDValidationMiddleware) ValidateJIDFields(fieldNames ...string) gin.Ha
 						modified = true
 						logger.LogDebug("Normalized %s from %s to %s", fieldName, strValue, normalizedJID)
 					}
-				} else if strValue == "" {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error": fmt.Sprintf("%s is required and cannot be empty", fieldName),
-					})
-					c.Abort()
-					return
 				}
 			}
 		}
