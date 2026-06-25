@@ -27,6 +27,7 @@ type GroupService interface {
 	SetGroupPhoto(data *SetGroupPhotoStruct, instance *instance_model.Instance) (string, error)
 	SetGroupName(data *SetGroupNameStruct, instance *instance_model.Instance) error
 	SetGroupDescription(data *SetGroupDescriptionStruct, instance *instance_model.Instance) error
+	SetGroupAnnounce(data *SetGroupAnnounceStruct, instance *instance_model.Instance) error
 	CreateGroup(data *CreateGroupStruct, instance *instance_model.Instance) (gin.H, error)
 	UpdateParticipant(data *AddParticipantStruct, instance *instance_model.Instance) error
 	GetMyGroups(instance *instance_model.Instance) ([]types.GroupInfo, error)
@@ -75,6 +76,11 @@ type SetGroupNameStruct struct {
 type SetGroupDescriptionStruct struct {
 	GroupJID    string `json:"groupJid"`
 	Description string `json:"description"`
+}
+
+type SetGroupAnnounceStruct struct {
+	GroupJID string `json:"groupJid"`
+	Announce bool   `json:"announce"`
 }
 
 type CreateGroupStruct struct {
@@ -447,6 +453,27 @@ func (g *groupService) LeaveGroup(data *LeaveGroupStruct, instance *instance_mod
 	err = client.LeaveGroup(context.Background(), data.GroupJID)
 	if err != nil {
 		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error leave group: %v", instance.Id, err)
+		return err
+	}
+
+	return nil
+}
+
+func (g *groupService) SetGroupAnnounce(data *SetGroupAnnounceStruct, instance *instance_model.Instance) error {
+	client, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	recipient, ok := utils.ParseJID(data.GroupJID)
+	if !ok {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating message fields", instance.Id)
+		return errors.New("invalid group jid")
+	}
+
+	err = client.SetGroupAnnounce(context.Background(), recipient, data.Announce)
+	if err != nil {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error set group announce: %v", instance.Id, err)
 		return err
 	}
 

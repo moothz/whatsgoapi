@@ -16,6 +16,7 @@ type GroupHandler interface {
 	SetGroupPhoto(ctx *gin.Context)
 	SetGroupName(ctx *gin.Context)
 	SetGroupDescription(ctx *gin.Context)
+	SetGroupAnnounce(ctx *gin.Context)
 	CreateGroup(ctx *gin.Context)
 	UpdateParticipant(ctx *gin.Context)
 	GetMyGroups(ctx *gin.Context)
@@ -307,6 +308,47 @@ func (g *groupHandler) SetGroupDescription(ctx *gin.Context) {
 	}
 
 	err = g.groupService.SetGroupDescription(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success"})
+}
+
+// Set group announce mode
+// @Summary Set group announce mode
+// @Description Set group announce mode
+// @Tags Group
+// @Accept json
+// @Produce json
+// @Param message body group_service.SetGroupAnnounceStruct true "Group data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /group/announce [post]
+func (g *groupHandler) SetGroupAnnounce(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *group_service.SetGroupAnnounceStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GroupJID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "groupJID is required"})
+		return
+	}
+
+	err = g.groupService.SetGroupAnnounce(data, instance)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
