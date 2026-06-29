@@ -10,17 +10,18 @@ RUN apk add --no-cache git make gcc musl-dev
 
 WORKDIR /build
 
-# Copy the whatsgoapi source (context is ./whatsgoapi)
+# Copy dependency files first to cache module downloads
+COPY go.mod go.sum ./
+COPY whatsmeow-lib/ ./whatsmeow-lib/
+
+# Download and cache Go dependencies
+RUN go mod download
+
+# Copy the rest of the source code
 COPY . .
 
-# Initialize and tidy the Go module, then build
-# go mod tidy requires the whatsmeow-lib submodule to be initialized
-RUN if [ ! -f go.mod ]; then \
-        go mod init whatsgo && \
-        go mod edit -replace go.mau.fi/whatsmeow=./whatsmeow-lib; \
-    fi && \
-    go mod tidy && \
-    mkdir -p build && \
+# Build the binary
+RUN mkdir -p build && \
     go build -v -o build/whatsgo cmd/whatsgo/main.go
 
 # ─────────────────────────────────────────────────────────────
