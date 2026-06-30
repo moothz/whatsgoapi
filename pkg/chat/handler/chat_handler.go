@@ -16,6 +16,7 @@ type ChatHandler interface {
 	ChatMute(ctx *gin.Context)
 	ChatUnmute(ctx *gin.Context)
 	HistorySyncRequest(ctx *gin.Context)
+	CommonGroups(ctx *gin.Context)
 }
 
 type chatHandler struct {
@@ -320,6 +321,47 @@ func (c *chatHandler) HistorySyncRequest(ctx *gin.Context) {
 	}
 
 	resp, err := c.chatService.HistorySyncRequest(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": resp})
+}
+
+// Get common groups with a user
+// @Summary Get common groups
+// @Description Fetches common groups with the specified JID
+// @Tags Chat
+// @Accept json
+// @Produce json
+// @Param message body chat_service.CommonGroupsStruct true "JID"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /chat/commonGroups [post]
+func (c *chatHandler) CommonGroups(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *chat_service.CommonGroupsStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.JID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "jid is required"})
+		return
+	}
+
+	resp, err := c.chatService.CommonGroups(data, instance)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

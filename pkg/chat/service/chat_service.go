@@ -3,6 +3,7 @@ package chat_service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	instance_model "whatsgo/pkg/instance/model"
@@ -22,6 +23,7 @@ type ChatService interface {
 	ChatMute(data *BodyStruct, instance *instance_model.Instance) (string, error)
 	ChatUnmute(data *BodyStruct, instance *instance_model.Instance) (string, error)
 	HistorySyncRequest(data *HistorySyncRequestStruct, instance *instance_model.Instance) (*whatsmeow.SendResponse, error)
+	CommonGroups(data *CommonGroupsStruct, instance *instance_model.Instance) ([]*types.GroupInfo, error)
 }
 
 type chatService struct {
@@ -37,6 +39,10 @@ type BodyStruct struct {
 type HistorySyncRequestStruct struct {
 	MessageInfo *types.MessageInfo `json:"messageInfo"`
 	Count       int                `json:"count"`
+}
+
+type CommonGroupsStruct struct {
+	JID string `json:"jid"`
 }
 
 func (c *chatService) ensureClientConnected(instanceId string) (*whatsmeow.Client, error) {
@@ -241,6 +247,46 @@ func (c *chatService) HistorySyncRequest(data *HistorySyncRequestStruct, instanc
 	}
 
 	return &res, nil
+}
+
+func (c *chatService) CommonGroups(data *CommonGroupsStruct, instance *instance_model.Instance) ([]*types.GroupInfo, error) {
+	client, err := c.ensureClientConnected(instance.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	targetJID, ok := utils.ParseJID(data.JID)
+	if !ok {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating JID: %s", instance.Id, data.JID)
+		return nil, errors.New("invalid target JID")
+	}
+
+	joinedGroups, err := client.GetJoinedGroups(context.Background())
+	if err != nil {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error getting joined groups: %v", instance.Id, err)
+		return nil, err
+	}
+
+	var commonGroups []*types.GroupInfo
+	targetUser := strings.TrimPrefix(targetJID.User, "+")
+
+	for _, group := range joinedGroups {
+		for _, participant := range group.Participants {
+			if targetUser == strings.TrimPrefix(participant.JID.User, "+") ||
+				targetUser == strings.TrimPrefix(participant.PhoneNumber.User, "+") ||
+				targetUser == strings.TrimPrefix(participant.LID.User, "+") {
+				commonGroups = append(commonGroups, group)
+				break
+			}
+		}
+	}
+
+	// Return empty slice instead of nil so it serializes as [] rather than null
+	if commonGroups == nil {
+		commonGroups = make([]*types.GroupInfo, 0)
+	}
+
+	return commonGroups, nil
 }
 
 func NewChatService(
