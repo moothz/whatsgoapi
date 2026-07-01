@@ -395,6 +395,17 @@ async function instanceAdvSettings(instanceId, opts = {}) {
 	dump("instanceAdvSettings", await apiPut(`/instance/${instanceId}/advanced-settings`, body));
 }
 
+/** POST /instance/passkey/respond — Responde com a assinatura do Passkey */
+async function instancePasskeyRespond(responseJsonStr) {
+	const response = typeof responseJsonStr === "string" ? JSON.parse(responseJsonStr) : responseJsonStr;
+	dump("instancePasskeyRespond", await apiPost("/instance/passkey/respond", response));
+}
+
+/** POST /instance/passkey/confirm — Confirma o passkey se necessário */
+async function instancePasskeyConfirm() {
+	dump("instancePasskeyConfirm", await apiPost("/instance/passkey/confirm", {}));
+}
+
 /** GET /group/list — Lista grupos */
 async function listGroups() {
 	dump("listGroups", await apiGet("/group/list"));
@@ -554,6 +565,8 @@ const FUNCTIONS = {
 	instanceCreate: ([phone, port, pairing]) =>
 		instanceCreate(BOT_NOME, phone, port, pairing === "pair" || pairing === "true"),
 	instanceAdvSettings: ([instanceId]) => instanceAdvSettings(instanceId),
+	instancePasskeyRespond: ([responseJson]) => instancePasskeyRespond(responseJson),
+	instancePasskeyConfirm: () => instancePasskeyConfirm(),
 
 	listGroups: () => listGroups(),
 	getCurrentGroups: () => getCurrentGroups(),
