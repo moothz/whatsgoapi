@@ -58,6 +58,7 @@ type WhatsmeowService interface {
 	ForceUpdateJid(instanceId string, number string) error
 	UpdateInstanceSettings(instanceId string) error
 	UpdateInstanceAdvancedSettings(instanceId string) error
+	GetLastPasskeyRequest(instanceId string) (*types.WebAuthnPublicKey, error)
 }
 
 type clientVersion struct {
@@ -112,6 +113,7 @@ type MyClient struct {
 	natsProducer       producer_interfaces.Producer
 	loggerWrapper      *logger_wrapper.LoggerManager
 	qrcodeCount        int
+	LastPasskeyRequest *types.WebAuthnPublicKey
 }
 
 type ClientData struct {
@@ -1797,6 +1799,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] ID is not 66 or 67 or view_once, skipping", mycli.userID)
 		}
 	case *events.PairPasskeyRequest:
+		mycli.LastPasskeyRequest = evt.PublicKey
 		doWebhook = true
 		postMap["event"] = "PairPasskeyRequest"
 		dataMap := make(map[string]interface{})
@@ -2427,3 +2430,12 @@ func cleanSenderID(senderID string) string {
 	}
 	return senderID
 }
+
+func (w *whatsmeowService) GetLastPasskeyRequest(instanceId string) (*types.WebAuthnPublicKey, error) {
+	myClient, exists := w.myClientPointer[instanceId]
+	if !exists || myClient == nil {
+		return nil, fmt.Errorf("client not found")
+	}
+	return myClient.LastPasskeyRequest, nil
+}
+

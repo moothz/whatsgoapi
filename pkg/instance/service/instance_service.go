@@ -82,10 +82,11 @@ type ConnectStruct struct {
 }
 
 type StatusStruct struct {
-	Connected bool
-	LoggedIn  bool
-	myJid     *types.JID
-	Name      string
+	Connected          bool
+	LoggedIn           bool
+	myJid              *types.JID
+	Name               string
+	LastPasskeyRequest *types.WebAuthnPublicKey `json:"lastPasskeyRequest,omitempty"`
 }
 
 type QrcodeStruct struct {
@@ -385,11 +386,14 @@ func (i instances) Status(instance *instance_model.Instance) (*StatusStruct, err
 		name = client.Store.PushName
 	}
 
+	lastPasskeyRequest, _ := i.whatsmeowService.GetLastPasskeyRequest(instance.Id)
+
 	status := &StatusStruct{
-		Connected: isConnected,
-		LoggedIn:  isLoggedIn,
-		myJid:     myJid,
-		Name:      name,
+		Connected:          isConnected,
+		LoggedIn:           isLoggedIn,
+		myJid:              myJid,
+		Name:               name,
+		LastPasskeyRequest: lastPasskeyRequest,
 	}
 
 	return status, nil
