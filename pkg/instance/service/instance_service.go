@@ -44,6 +44,8 @@ type InstanceService interface {
 	GetLogs(instanceId string, startDate, endDate time.Time, level string, limit int) ([]logger_wrapper.LogEntry, error)
 	GetAdvancedSettings(instanceId string) (*instance_model.AdvancedSettings, error)
 	UpdateAdvancedSettings(instanceId string, settings *instance_model.AdvancedSettings) error
+	SubmitPasskeyResponse(instanceId string, response *types.WebAuthnResponse) error
+	SendPasskeyConfirmation(instanceId string) error
 }
 
 type instances struct {
@@ -800,6 +802,22 @@ func (i instances) UpdateAdvancedSettings(instanceId string, settings *instance_
 
 	i.loggerWrapper.GetLogger(instanceId).LogInfo("[%s] Advanced settings updated successfully", instanceId)
 	return nil
+}
+
+func (i instances) SubmitPasskeyResponse(instanceId string, response *types.WebAuthnResponse) error {
+	client := i.clientPointer[instanceId]
+	if client == nil {
+		return fmt.Errorf("client not initialized")
+	}
+	return client.SendPasskeyResponse(context.Background(), response)
+}
+
+func (i instances) SendPasskeyConfirmation(instanceId string) error {
+	client := i.clientPointer[instanceId]
+	if client == nil {
+		return fmt.Errorf("client not initialized")
+	}
+	return client.SendPasskeyConfirmation(context.Background())
 }
 
 func NewInstanceService(

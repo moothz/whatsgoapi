@@ -10,6 +10,7 @@ import (
 	instance_model "whatsgo/pkg/instance/model"
 	instance_service "whatsgo/pkg/instance/service"
 	"github.com/google/uuid"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type InstanceHandler interface {
@@ -30,6 +31,8 @@ type InstanceHandler interface {
 	GetLogs(ctx *gin.Context)
 	GetAdvancedSettings(ctx *gin.Context)
 	UpdateAdvancedSettings(ctx *gin.Context)
+	SubmitPasskeyResponse(ctx *gin.Context)
+	SendPasskeyConfirmation(ctx *gin.Context)
 }
 
 type instanceHandler struct {
@@ -653,6 +656,46 @@ func (h *instanceHandler) UpdateAdvancedSettings(c *gin.Context) {
 		"message":  "Advanced settings updated successfully",
 		"settings": settings,
 	})
+}
+
+func (h *instanceHandler) SubmitPasskeyResponse(c *gin.Context) {
+	getInstance := c.MustGet("instance")
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data types.WebAuthnResponse
+	if err := c.ShouldBindJSON(&data); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := h.instanceService.SubmitPasskeyResponse(instance.Id, &data)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "success"})
+}
+
+func (h *instanceHandler) SendPasskeyConfirmation(c *gin.Context) {
+	getInstance := c.MustGet("instance")
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	err := h.instanceService.SendPasskeyConfirmation(instance.Id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "success"})
 }
 
 func NewInstanceHandler(instanceService instance_service.InstanceService, config *config.Config) InstanceHandler {

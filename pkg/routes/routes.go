@@ -91,6 +91,8 @@ func (r *Routes) AssignRoutes(eng *gin.Engine) {
 			routes.DELETE("/logout", r.instanceHandler.Logout)
 			routes.GET("/:instanceId/advanced-settings", r.instanceHandler.GetAdvancedSettings)
 			routes.PUT("/:instanceId/advanced-settings", r.instanceHandler.UpdateAdvancedSettings)
+			routes.POST("/passkey/respond", r.instanceHandler.SubmitPasskeyResponse)
+			routes.POST("/passkey/confirm", r.instanceHandler.SendPasskeyConfirmation)
 		}
 	}
 

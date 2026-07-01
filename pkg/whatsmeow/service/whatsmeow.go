@@ -1796,6 +1796,38 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		} else {
 			mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] ID is not 66 or 67 or view_once, skipping", mycli.userID)
 		}
+	case *events.PairPasskeyRequest:
+		doWebhook = true
+		postMap["event"] = "PairPasskeyRequest"
+		dataMap := make(map[string]interface{})
+		dataMap["publicKey"] = evt.PublicKey
+		postMap["data"] = dataMap
+	case *events.PairPasskeyConfirmation:
+		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Got passkey confirmation: Code=%s, SkipHandoffUX=%v", mycli.userID, evt.Code, evt.SkipHandoffUX)
+		if evt.SkipHandoffUX {
+			go func() {
+				err := mycli.WAClient.SendPasskeyConfirmation(context.Background())
+				if err != nil {
+					mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Failed to send automatic passkey confirmation: %v", mycli.userID, err)
+				} else {
+					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Successfully sent automatic passkey confirmation", mycli.userID)
+				}
+			}()
+		} else {
+			doWebhook = true
+			postMap["event"] = "PairPasskeyConfirmation"
+			dataMap := make(map[string]interface{})
+			dataMap["code"] = evt.Code
+			postMap["data"] = dataMap
+		}
+	case *events.PairPasskeyError:
+		mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Passkey error: %v", mycli.userID, evt.Error)
+		doWebhook = true
+		postMap["event"] = "PairPasskeyError"
+		dataMap := make(map[string]interface{})
+		dataMap["error"] = evt.Error.Error()
+		dataMap["continuation"] = evt.Continuation
+		postMap["data"] = dataMap
 	default:
 		mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Unhandled event %s: %+v", mycli.userID, fmt.Sprintf("%T", evt), evt)
 		return
@@ -1911,7 +1943,7 @@ func (w *whatsmeowService) CallWebhook(instance *instance_model.Instance, queueN
 			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
-	case "Connected", "PairSuccess", "TemporaryBan", "LoggedOut", "ConnectFailure", "Disconnected":
+	case "Connected", "PairSuccess", "TemporaryBan", "LoggedOut", "ConnectFailure", "Disconnected", "PairPasskeyRequest", "PairPasskeyConfirmation", "PairPasskeyError":
 		if contains(subscriptions, "CONNECTION") {
 			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
@@ -2145,7 +2177,7 @@ func (w *whatsmeowService) SendToGlobalQueues(eventType string, payload []byte, 
 			globalEventType = "CHAT_PRESENCE"
 		case "CallOffer", "CallAccept", "CallTerminate", "CallOfferNotice", "CallRelayLatency":
 			globalEventType = "CALL"
-		case "Connected", "PairSuccess", "TemporaryBan", "LoggedOut", "ConnectFailure", "Disconnected":
+		case "Connected", "PairSuccess", "TemporaryBan", "LoggedOut", "ConnectFailure", "Disconnected", "PairPasskeyRequest", "PairPasskeyConfirmation", "PairPasskeyError":
 			globalEventType = "CONNECTION"
 		case "LabelEdit", "LabelAssociationChat", "LabelAssociationMessage":
 			globalEventType = "LABEL"
