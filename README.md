@@ -128,5 +128,8 @@ Para corrigir a manipulação da lista de bloqueados (block/unblock) que utiliza
 - O bloqueio seja enviado incluindo o atributo `pn_jid` com o número de telefone correspondente.
 - A requisição de bloqueio de JIDs do tipo LID no servidor do WhatsApp seja efetuada sem que resulte em erros `400: bad-request`.
 
+### 2. Login com Passkeys - PR #1186
+Para permitir o login utilizando passkeys (recurso recentemente introduzido pelo WhatsApp), aplicamos a pull request [#1186 da whatsmeow](https://github.com/tulir/whatsmeow/pull/1186). Essa alteração traz o suporte de pareamento e login via passkeys.
+
 ## ⚠️ Importante
 A `GLOBAL_API_KEY` é gerada automaticamente pelo `make setup`. Você pode encontrá-la no seu arquivo `.env` e deve utilizá-la em todos os headers das requisições para autorização (`apiKey`).
