@@ -55,7 +55,6 @@ type Config struct {
 	EventIgnoreStatus    bool
 	QrcodeMaxCount       int
 	CheckUserExists      bool
-	WhatsappPlatform     string
 
 	// Logger configurations
 	LogMaxSize    int
@@ -163,11 +162,6 @@ func Load() *Config {
 
 	osName := os.Getenv(config_env.OS_NAME)
 
-	whatsappPlatform := os.Getenv(config_env.WHATSAPP_PLATFORM)
-	if whatsappPlatform == "" {
-		whatsappPlatform = "desktop"
-	}
-
 	webhookUrl := os.Getenv(config_env.WEBHOOK_URL)
 
 	apiAudioConverter := os.Getenv(config_env.API_AUDIO_CONVERTER)
@@ -273,7 +267,6 @@ func Load() *Config {
 		EventIgnoreStatus:    eventIgnoreStatus == "true",
 		QrcodeMaxCount:       qrMaxCount,
 		CheckUserExists:      checkUserExists != "false", // Default true, set to false to disable
-		WhatsappPlatform:     whatsappPlatform,
 		NatsUrl:              natsUrl,
 		NatsGlobalEnabled:    natsGlobalEnabled == "true",
 		NatsGlobalEvents:     natsGlobalEvents,

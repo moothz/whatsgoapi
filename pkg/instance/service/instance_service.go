@@ -433,12 +433,7 @@ func (i instances) GetQr(instance *instance_model.Instance) (*QrcodeStruct, erro
 }
 
 func (i instances) Pair(data *PairStruct, instance *instance_model.Instance) (*PairReturnStruct, error) {
-	platformName := "desktop"
-	if i.config.WhatsappPlatform != "" {
-		platformName = i.config.WhatsappPlatform
-	}
-	clientType, displayName := GetPairClientType(platformName)
-	code, err := i.clientPointer[instance.Id].PairPhone(context.Background(), data.Phone, true, clientType, displayName)
+	code, err := i.clientPointer[instance.Id].PairPhone(context.Background(), data.Phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		i.loggerWrapper.GetLogger(instance.Id).LogError("[%s] something went wrong calling pair phone: %v", instance.Id, err)
 	}
@@ -844,32 +839,5 @@ func NewInstanceService(
 		whatsmeowService:   whatsmeowService,
 		config:             config,
 		loggerWrapper:      loggerWrapper,
-	}
-}
-
-func GetPairClientType(platform string) (whatsmeow.PairClientType, string) {
-	switch strings.ToLower(platform) {
-	case "chrome":
-		return whatsmeow.PairClientChrome, "Chrome (Linux)"
-	case "firefox":
-		return whatsmeow.PairClientFirefox, "Firefox (Linux)"
-	case "edge":
-		return whatsmeow.PairClientEdge, "Edge (Linux)"
-	case "ie":
-		return whatsmeow.PairClientIE, "Internet Explorer (Windows)"
-	case "opera":
-		return whatsmeow.PairClientOpera, "Opera (Linux)"
-	case "safari":
-		return whatsmeow.PairClientSafari, "Safari (macOS)"
-	case "uwp":
-		return whatsmeow.PairClientUWP, "Windows (UWP)"
-	case "desktop":
-		return whatsmeow.PairClientElectron, "WhatsApp Desktop"
-	case "macos":
-		return whatsmeow.PairClientMacOS, "Mac"
-	case "android":
-		return whatsmeow.PairClientAndroid, "Android Device"
-	default:
-		return whatsmeow.PairClientUnknown, "WhatsApp Desktop"
 	}
 }
