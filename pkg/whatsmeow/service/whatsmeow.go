@@ -25,7 +25,6 @@ import (
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
-	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -335,10 +334,11 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 
 	var version clientVersion
 
-	platformID, ok := waCompanionReg.DeviceProps_PlatformType_value[strings.ToUpper("chrome")]
-	if ok {
-		store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_PlatformType(platformID).Enum()
+	platformName := "desktop"
+	if w.config.WhatsappPlatform != "" {
+		platformName = w.config.WhatsappPlatform
 	}
+	store.DeviceProps.PlatformType = utils.WhatsAppGetUserAgent(platformName).Enum()
 	if cd.Instance.OsName == "" {
 		cd.Instance.OsName = utils.WhatsAppGetUserOS()
 	}
