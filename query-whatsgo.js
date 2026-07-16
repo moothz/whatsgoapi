@@ -478,6 +478,12 @@ async function profileStatus(status) {
 	dump("profileStatus", await apiPost("/user/profileStatus", { status }));
 }
 
+/** POST /user/avatar — Obtém a foto de perfil de um usuário */
+async function avatar(number) {
+	const jid = number.includes("@") ? number : `${number}@s.whatsapp.net`;
+	dump("avatar", await apiPost("/user/avatar", { number: jid, preview: false }));
+}
+
 /** POST /user/photo — Atualiza a foto de perfil */
 async function updatePhoto(imageUrlOrBase64) {
 	dump("updatePhoto", await apiPost("/user/photo", { image: imageUrlOrBase64 }));
@@ -582,6 +588,7 @@ const FUNCTIONS = {
 	blockUser: ([number]) => blockUser(number),
 	unblockUser: ([number]) => unblockUser(number),
 	profileStatus: ([status]) => profileStatus(status),
+	avatar: ([number]) => avatar(number),
 	updatePhoto: ([imageUrl]) => updatePhoto(imageUrl),
 	commonGroups: ([jid]) => commonGroups(jid),
 
