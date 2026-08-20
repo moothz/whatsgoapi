@@ -1765,9 +1765,11 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 	case *events.GroupInfo:
 		doWebhook = true
 		postMap["event"] = "GroupInfo"
+		postMap["data"] = evt
 	case *events.JoinedGroup:
 		doWebhook = true
 		postMap["event"] = "JoinedGroup"
+		postMap["data"] = evt
 	case *events.NewsletterJoin:
 		doWebhook = true
 		postMap["event"] = "NewsletterJoin"
