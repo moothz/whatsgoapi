@@ -1,17 +1,27 @@
 package user_service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	instance_model "whatsgo/pkg/instance/model"
 	logger_wrapper "whatsgo/pkg/logger"
 	"whatsgo/pkg/utils"
 	whatsmeow_service "whatsgo/pkg/whatsmeow/service"
+	"github.com/vincent-petithory/dataurl"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -466,27 +476,92 @@ func (u *userService) GetBlockList(instance *instance_model.Instance) (*types.Bl
 	return resp, nil
 }
 
+func processProfilePictureBytes(imageInput string) ([]byte, error) {
+	var rawData []byte
+
+	if strings.HasPrefix(imageInput, "http://") || strings.HasPrefix(imageInput, "https://") {
+		resp, err := http.Get(imageInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch image from URL: %w", err)
+		}
+		defer resp.Body.Close()
+		rawData, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read image data from URL: %w", err)
+		}
+	} else if strings.HasPrefix(imageInput, "data:") {
+		dataURL, err := dataurl.DecodeString(imageInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode data URL: %w", err)
+		}
+		rawData = dataURL.Data
+	} else if fileBytes, err := os.ReadFile(imageInput); err == nil {
+		rawData = fileBytes
+	} else if decoded, err := base64.StdEncoding.DecodeString(imageInput); err == nil && len(decoded) > 0 {
+		rawData = decoded
+	} else {
+		return nil, errors.New("invalid image: must be HTTP URL, data URL, base64 string, or local file path")
+	}
+
+	if len(rawData) == 0 {
+		return nil, errors.New("image data is empty")
+	}
+
+	// Decodifica imagem (suporta PNG, WebP, GIF, JPEG, etc.)
+	img, _, err := image.Decode(bytes.NewReader(rawData))
+	if err != nil {
+		// Se falhar o decode, tenta passar os bytes originais se ja for JPEG
+		if len(rawData) > 3 && rawData[0] == 0xFF && rawData[1] == 0xD8 && rawData[2] == 0xFF {
+			return rawData, nil
+		}
+		return nil, fmt.Errorf("failed to decode image format: %w", err)
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// O WhatsApp exige avatar quadrado com dimensao recomendada de ate 640x640
+	minDim := width
+	if height < minDim {
+		minDim = height
+	}
+	startX := bounds.Min.X + (width-minDim)/2
+	startY := bounds.Min.Y + (height-minDim)/2
+	cropRect := image.Rect(startX, startY, startX+minDim, startY+minDim)
+
+	targetDim := 640
+	if minDim < targetDim {
+		targetDim = minDim
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, targetDim, targetDim))
+	draw.BiLinear.Scale(dst, dst.Bounds(), img, cropRect, draw.Over, nil)
+
+	var buf bytes.Buffer
+	err = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 90})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode JPEG: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 func (u *userService) SetProfilePicture(data *SetProfilePictureStruct, instance *instance_model.Instance) (bool, error) {
 	client, err := u.ensureClientConnected(instance.Id)
 	if err != nil {
 		return false, err
 	}
 
-	var filedata []byte
-
-	resp, err := http.Get(data.Image)
+	filedata, err := processProfilePictureBytes(data.Image)
 	if err != nil {
-		return false, fmt.Errorf("failed to fetch image from URL: %v", err)
-	}
-	defer resp.Body.Close()
-
-	filedata, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read image data: %v", err)
+		u.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error processing profile picture: %v", instance.Id, err)
+		return false, err
 	}
 
 	_, err = client.SetGroupPhoto(context.Background(), types.EmptyJID, filedata)
 	if err != nil {
+		u.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error setting profile picture: %v", instance.Id, err)
 		return false, err
 	}
 

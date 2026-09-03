@@ -53,6 +53,8 @@ if (process.argv.includes("--json")) console.log = _log;
 const axios = require("axios");
 const qrcodeTerminal = require("qrcode-terminal");
 const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
 
 // ─── Configuração ──────────────────────────────────────────────────────────────
 const BASE_URL = (process.env.WHATS_GO_API_URL || "http://localhost:9800").replace(/\/$/, "");
@@ -449,8 +451,17 @@ async function groupName(groupJid, name) {
 }
 
 /** POST /group/photo — Atualiza foto do grupo */
-async function groupPhoto(groupJid, imageUrlOrBase64) {
-	dump("groupPhoto", await apiPost("/group/photo", { groupJid, image: imageUrlOrBase64 }));
+async function groupPhoto(groupJid, imagePathOrUrl) {
+	let imageData = imagePathOrUrl;
+	try {
+		if (fs.existsSync(imagePathOrUrl)) {
+			const ext = path.extname(imagePathOrUrl).toLowerCase();
+			const mime = ext === ".png" ? "image/png" : "image/jpeg";
+			const base64 = fs.readFileSync(imagePathOrUrl).toString("base64");
+			imageData = `data:${mime};base64,${base64}`;
+		}
+	} catch (e) {}
+	dump("groupPhoto", await apiPost("/group/photo", { groupJid, image: imageData }));
 }
 
 /** POST /group/settings — Configurações do grupo (locked, unlocked, announcement, not_announcement, all_member_add, admin_add, join_approval_on, join_approval_off) */
@@ -517,8 +528,17 @@ async function avatar(number) {
 }
 
 /** POST /user/photo — Atualiza a foto de perfil */
-async function updatePhoto(imageUrlOrBase64) {
-	dump("updatePhoto", await apiPost("/user/photo", { image: imageUrlOrBase64 }));
+async function updatePhoto(imagePathOrUrl) {
+	let imageData = imagePathOrUrl;
+	try {
+		if (fs.existsSync(imagePathOrUrl)) {
+			const ext = path.extname(imagePathOrUrl).toLowerCase();
+			const mime = ext === ".png" ? "image/png" : "image/jpeg";
+			const base64 = fs.readFileSync(imagePathOrUrl).toString("base64");
+			imageData = `data:${mime};base64,${base64}`;
+		}
+	} catch (e) {}
+	dump("updatePhoto", await apiPost("/user/photo", { image: imageData }));
 }
 
 /** POST /chat/commonGroups — Grupos em comum com um usuário */
