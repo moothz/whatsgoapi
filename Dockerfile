@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────────────────────
 # whatsgoapi Dockerfile — Multi-stage build
-# Go 1.25 (whatsmeow backend)
+# Go 1.26 (whatsmeow backend)
 # ─────────────────────────────────────────────────────────────
 
 # Stage 1: Builder
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git make gcc musl-dev
 

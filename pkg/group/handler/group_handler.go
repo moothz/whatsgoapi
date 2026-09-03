@@ -22,6 +22,10 @@ type GroupHandler interface {
 	GetMyGroups(ctx *gin.Context)
 	JoinGroupLink(ctx *gin.Context)
 	LeaveGroup(ctx *gin.Context)
+	UpdateGroupSettings(ctx *gin.Context)
+	GetGroupRequestParticipants(ctx *gin.Context)
+	UpdateGroupRequestParticipants(ctx *gin.Context)
+	SetGroupMemberTag(ctx *gin.Context)
 }
 
 type groupHandler struct {
@@ -555,6 +559,190 @@ func (g *groupHandler) LeaveGroup(ctx *gin.Context) {
 	}
 
 	err = g.groupService.LeaveGroup(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success"})
+}
+
+// Update group settings
+// @Summary Update group settings
+// @Description Update group settings (locked, unlocked, announcement, not_announcement, all_member_add, admin_add, join_approval_on, join_approval_off)
+// @Tags Group
+// @Accept json
+// @Produce json
+// @Param message body group_service.UpdateGroupSettingsStruct true "Group settings data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /group/settings [post]
+func (g *groupHandler) UpdateGroupSettings(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *group_service.UpdateGroupSettingsStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GroupJID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "groupJid is required"})
+		return
+	}
+
+	if data.Action == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "action is required"})
+		return
+	}
+
+	err = g.groupService.UpdateGroupSettings(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success"})
+}
+
+// Get group request participants
+// @Summary Get group request participants
+// @Description Get list of participants requesting to join group
+// @Tags Group
+// @Accept json
+// @Produce json
+// @Param message body group_service.GetGroupRequestParticipantsStruct true "Group data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /group/requestparticipants [post]
+func (g *groupHandler) GetGroupRequestParticipants(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *group_service.GetGroupRequestParticipantsStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GroupJID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "groupJid is required"})
+		return
+	}
+
+	resp, err := g.groupService.GetGroupRequestParticipants(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": resp})
+}
+
+// Update group request participants
+// @Summary Update group request participants
+// @Description Approve or reject participant requests to join group
+// @Tags Group
+// @Accept json
+// @Produce json
+// @Param message body group_service.UpdateGroupRequestParticipantsStruct true "Participant request data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /group/updateparticipantsrequest [post]
+func (g *groupHandler) UpdateGroupRequestParticipants(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *group_service.UpdateGroupRequestParticipantsStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GroupJID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "groupJid is required"})
+		return
+	}
+
+	if data.Action == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "action is required"})
+		return
+	}
+
+	if len(data.Participants) < 1 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "participants are required"})
+		return
+	}
+
+	resp, err := g.groupService.UpdateGroupRequestParticipants(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": resp})
+}
+
+// Set group member tag
+// @Summary Set group member tag
+// @Description Set custom tag/title for a participant or self in a group
+// @Tags Group
+// @Accept json
+// @Produce json
+// @Param message body group_service.SetGroupMemberTagStruct true "Member tag data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /group/membertag [post]
+func (g *groupHandler) SetGroupMemberTag(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *group_service.SetGroupMemberTagStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GroupJID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "groupJid is required"})
+		return
+	}
+
+	if data.Tag == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "tag is required"})
+		return
+	}
+
+	err = g.groupService.SetGroupMemberTag(data, instance)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

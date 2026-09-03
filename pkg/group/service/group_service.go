@@ -33,6 +33,10 @@ type GroupService interface {
 	GetMyGroups(instance *instance_model.Instance) ([]types.GroupInfo, error)
 	JoinGroupLink(data *JoinGroupStruct, instance *instance_model.Instance) error
 	LeaveGroup(data *LeaveGroupStruct, instance *instance_model.Instance) error
+	UpdateGroupSettings(data *UpdateGroupSettingsStruct, instance *instance_model.Instance) error
+	GetGroupRequestParticipants(data *GetGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]EnrichedGroupParticipantRequest, error)
+	UpdateGroupRequestParticipants(data *UpdateGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]types.GroupParticipant, error)
+	SetGroupMemberTag(data *SetGroupMemberTagStruct, instance *instance_model.Instance) error
 }
 
 type groupService struct {
@@ -101,6 +105,34 @@ type JoinGroupStruct struct {
 type LeaveGroupStruct struct {
 	GroupJID types.JID `json:"groupJid"`
 }
+
+type UpdateGroupSettingsStruct struct {
+	GroupJID string `json:"groupJid"`
+	Action   string `json:"action"`
+}
+
+type GetGroupRequestParticipantsStruct struct {
+	GroupJID string `json:"groupJid"`
+}
+
+type EnrichedGroupParticipantRequest struct {
+	JID         types.JID `json:"JID"`
+	RequestedAt time.Time `json:"RequestedAt"`
+	PushName    string    `json:"PushName"`
+}
+
+type UpdateGroupRequestParticipantsStruct struct {
+	GroupJID     string   `json:"groupJid"`
+	Action       string   `json:"action"`
+	Participants []string `json:"participants"`
+}
+
+type SetGroupMemberTagStruct struct {
+	GroupJID    string `json:"groupJid"`
+	Participant string `json:"participant,omitempty"`
+	Tag         string `json:"tag"`
+}
+
 
 func (g *groupService) ensureClientConnected(instanceId string) (*whatsmeow.Client, error) {
 	client := g.clientPointer[instanceId]
@@ -478,6 +510,134 @@ func (g *groupService) SetGroupAnnounce(data *SetGroupAnnounceStruct, instance *
 	}
 
 	return nil
+}
+
+func (g *groupService) UpdateGroupSettings(data *UpdateGroupSettingsStruct, instance *instance_model.Instance) error {
+	client, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	jid, ok := utils.ParseJID(data.GroupJID)
+	if !ok {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Invalid group JID: %s", instance.Id, data.GroupJID)
+		return errors.New("invalid group jid")
+	}
+
+	switch data.Action {
+	case "locked":
+		return client.SetGroupLocked(context.Background(), jid, true)
+	case "unlocked":
+		return client.SetGroupLocked(context.Background(), jid, false)
+	case "announcement":
+		return client.SetGroupAnnounce(context.Background(), jid, true)
+	case "not_announcement":
+		return client.SetGroupAnnounce(context.Background(), jid, false)
+	case "all_member_add":
+		return client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAllMember)
+	case "admin_add":
+		return client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAdmin)
+	case "join_approval_on":
+		return client.SetGroupJoinApprovalMode(context.Background(), jid, true)
+	case "join_approval_off":
+		return client.SetGroupJoinApprovalMode(context.Background(), jid, false)
+	default:
+		return fmt.Errorf("invalid action '%s': must be locked, unlocked, announcement, not_announcement, all_member_add, admin_add, join_approval_on, or join_approval_off", data.Action)
+	}
+}
+
+func (g *groupService) GetGroupRequestParticipants(data *GetGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]EnrichedGroupParticipantRequest, error) {
+	client, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	jid, ok := utils.ParseJID(data.GroupJID)
+	if !ok {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Invalid group JID: %s", instance.Id, data.GroupJID)
+		return nil, errors.New("invalid group jid")
+	}
+
+	requests, err := client.GetGroupRequestParticipants(context.Background(), jid)
+	if err != nil {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to get group participant requests: %v", instance.Id, err)
+		return nil, err
+	}
+
+	enriched := make([]EnrichedGroupParticipantRequest, 0, len(requests))
+	for _, req := range requests {
+		pushName := ""
+		if contact, err := client.Store.Contacts.GetContact(context.Background(), req.JID); err == nil && contact.Found {
+			pushName = contact.PushName
+			if pushName == "" {
+				pushName = contact.FullName
+			}
+		}
+		enriched = append(enriched, EnrichedGroupParticipantRequest{
+			JID:         req.JID,
+			RequestedAt: req.RequestedAt,
+			PushName:    pushName,
+		})
+	}
+
+	return enriched, nil
+}
+
+func (g *groupService) UpdateGroupRequestParticipants(data *UpdateGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]types.GroupParticipant, error) {
+	client, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	jid, ok := utils.ParseJID(data.GroupJID)
+	if !ok {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Invalid group JID: %s", instance.Id, data.GroupJID)
+		return nil, errors.New("invalid group jid")
+	}
+
+	var jids []types.JID
+	for _, p := range data.Participants {
+		pjid, ok := utils.ParseJID(p)
+		if !ok {
+			return nil, fmt.Errorf("invalid participant JID: %s", p)
+		}
+		jids = append(jids, pjid)
+	}
+
+	var action whatsmeow.ParticipantRequestChange
+	switch strings.ToLower(data.Action) {
+	case "approve":
+		action = whatsmeow.ParticipantChangeApprove
+	case "reject":
+		action = whatsmeow.ParticipantChangeReject
+	default:
+		return nil, fmt.Errorf("invalid action '%s': must be 'approve' or 'reject'", data.Action)
+	}
+
+	return client.UpdateGroupRequestParticipants(context.Background(), jid, jids, action)
+}
+
+func (g *groupService) SetGroupMemberTag(data *SetGroupMemberTagStruct, instance *instance_model.Instance) error {
+	_, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	_, ok := utils.ParseJID(data.GroupJID)
+	if !ok {
+		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Invalid group JID: %s", instance.Id, data.GroupJID)
+		return errors.New("invalid group jid")
+	}
+
+	if len(data.Tag) > 30 {
+		return errors.New("tag must be 30 characters or less")
+	}
+
+	// O recurso "Member Tag" (etiqueta personalizada exibida abaixo do nome de membros em grupos)
+	// introduzido pelo WhatsApp em 2026 utiliza mutations GraphQL MEX proprietarias da Meta
+	// que ainda nao foram documentadas/decodificadas nas bibliotecas de protocolo aberto.
+	g.loggerWrapper.GetLogger(instance.Id).LogWarn("[%s] Member tag is not yet supported by the WhatsApp open-source protocol (requires MEX mutation)", instance.Id)
+	return errors.New("recurso Member Tag ainda nao suportado pelo protocolo aberto do WhatsApp (requer mutation MEX proprietaria)")
 }
 
 func NewGroupService(

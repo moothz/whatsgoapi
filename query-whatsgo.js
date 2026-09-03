@@ -28,6 +28,10 @@
  *   node query-whatsgo.js mybot updatePhoto https://example.com/foto.jpg
  *   node query-whatsgo.js mybot groupPhoto 120363000000000001@g.us https://example.com/foto.jpg
  *   node query-whatsgo.js mybot groupName 120363000000000001@g.us "Novo Nome do Grupo"
+ *   node query-whatsgo.js mybot groupSettings 120363000000000001@g.us admin_add
+ *   node query-whatsgo.js mybot groupRequestParticipants 120363000000000001@g.us
+ *   node query-whatsgo.js mybot updateGroupParticipantsRequest 120363000000000001@g.us approve 5599999999999@s.whatsapp.net
+ *   node query-whatsgo.js mybot groupMemberTag 120363000000000001@g.us "Bot Oficial"
  *   node query-whatsgo.js mybot blockUser 5599999999999@s.whatsapp.net
  *   node query-whatsgo.js mybot unblockUser 5599999999999@s.whatsapp.net
  *   node query-whatsgo.js mybot instanceCreate 55596424307 3322
@@ -449,6 +453,34 @@ async function groupPhoto(groupJid, imageUrlOrBase64) {
 	dump("groupPhoto", await apiPost("/group/photo", { groupJid, image: imageUrlOrBase64 }));
 }
 
+/** POST /group/settings — Configurações do grupo (locked, unlocked, announcement, not_announcement, all_member_add, admin_add, join_approval_on, join_approval_off) */
+async function groupSettings(groupJid, action) {
+	dump("groupSettings", await apiPost("/group/settings", { groupJid, action }));
+}
+
+/** POST /group/requestparticipants — Lista pedidos de entrada em grupos fechados */
+async function groupRequestParticipants(groupJid) {
+	dump("groupRequestParticipants", await apiPost("/group/requestparticipants", { groupJid }));
+}
+
+/** POST /group/updateparticipantsrequest — Aprova ou rejeita pedidos de entrada */
+async function updateGroupParticipantsRequest(groupJid, action, ...participants) {
+	// Se participants for array aninhado, desaninha
+	const pList = participants.flat();
+	dump("updateGroupParticipantsRequest", await apiPost("/group/updateparticipantsrequest", {
+		groupJid,
+		action,
+		participants: pList
+	}));
+}
+
+/** POST /group/membertag — Define etiqueta do bot ou participante no grupo */
+async function groupMemberTag(groupJid, tag, participant = null) {
+	const body = { groupJid, tag };
+	if (participant) body.participant = participant;
+	dump("groupMemberTag", await apiPost("/group/membertag", body));
+}
+
 /** POST /user/info — Info de um usuário */
 async function userInfo(number) {
 	// number deve ter @s.whatsapp.net
@@ -582,6 +614,11 @@ const FUNCTIONS = {
 	groupInviteInfo: ([code]) => groupInviteInfo(code),
 	groupName: ([groupJid, name]) => groupName(groupJid, name),
 	groupPhoto: ([groupJid, imageUrl]) => groupPhoto(groupJid, imageUrl),
+	groupSettings: ([groupJid, action]) => groupSettings(groupJid, action),
+	groupRequestParticipants: ([groupJid]) => groupRequestParticipants(groupJid),
+	updateGroupParticipantsRequest: ([groupJid, action, ...participants]) =>
+		updateGroupParticipantsRequest(groupJid, action, ...participants),
+	groupMemberTag: ([groupJid, tag, participant]) => groupMemberTag(groupJid, tag, participant),
 
 	userInfo: ([number]) => userInfo(number),
 	blockList: () => blockList(),
