@@ -1294,8 +1294,8 @@ func convertVideoToWebP(inputData []byte, transparentColor string) ([]byte, erro
 
 	// Filtros base: scale, pad, fps e loop
 	// scale=512:512:force_original_aspect_ratio=decrease: Redimensiona para caber em 512x512, sem distorcer
-	// pad=512:512:(ow-iw)/2:(oh-ih)/2: Adiciona padding transparente para completar o quadrado
-	baseFilters := "fps=15,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
+	// format=yuva420p, pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0.0: Adiciona padding transparente para completar o quadrado sem bordas pretas
+	baseFilters := "fps=15,scale=512:512:force_original_aspect_ratio=decrease,format=yuva420p,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0.0"
 
 	// Se houver uma cor transparente definida, adiciona o filtro colorkey ANTES dos outros filtros
 	// para garantir que a cor seja removida do vídeo original
@@ -1307,14 +1307,15 @@ func convertVideoToWebP(inputData []byte, transparentColor string) ([]byte, erro
 		filters = fmt.Sprintf("colorkey=0x%s:0.1:0.0,%s", cleanHex, baseFilters)
 	}
 
-	// Comando FFmpeg otimizado
+	// Comando FFmpeg otimizado seguindo padrões do WhatsApp (máx 6s, 512x512, alta compressão)
 	cmd := exec.Command("ffmpeg",
 		"-i", tmpInput.Name(),
+		"-t", "6",
 		"-vcodec", "libwebp",
 		"-filter:v", filters,
 		"-lossless", "0",
-		"-compression_level", "4",
-		"-q:v", "50",
+		"-compression_level", "6",
+		"-q:v", "45",
 		"-loop", "0",
 		"-an",
 		"-f", "webp",
@@ -1352,7 +1353,7 @@ func convertToWebP(imageDataURL string, transparentColor string) ([]byte, error)
 
 	if mime.Is("image/webp") {
 		return data, nil
-	} else if mime.Is("video/mp4") {
+	} else if mime.Is("video/mp4") || mime.Is("image/gif") {
 		return convertVideoToWebP(data, transparentColor)
 	} else if mime.Is("image/jpeg") || mime.Is("image/png") || mime.Is("image/jpg") {
 		img, _, err := image.Decode(bytes.NewReader(data))
