@@ -1292,49 +1292,73 @@ func convertVideoToWebP(inputData []byte, transparentColor string) ([]byte, erro
 	tmpOutput := tmpInput.Name() + ".webp"
 	defer os.Remove(tmpOutput)
 
-	// Filtros base: scale, pad, fps e loop
-	// scale=512:512:force_original_aspect_ratio=decrease: Redimensiona para caber em 512x512, sem distorcer
-	// format=yuva420p, pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0.0: Adiciona padding transparente para completar o quadrado sem bordas pretas
-	baseFilters := "fps=12,scale=512:512:force_original_aspect_ratio=decrease,format=yuva420p,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0.0"
-
-	// Se houver uma cor transparente definida, adiciona o filtro colorkey ANTES dos outros filtros
-	// para garantir que a cor seja removida do vídeo original
-	filters := baseFilters
-	if transparentColor != "" {
-		cleanHex := strings.ReplaceAll(transparentColor, "#", "")
-		// colorkey=0xCOLOR:similarity:blend
-		// similarity 0.1 pega pequenas variações da cor (compressão do vídeo)
-		filters = fmt.Sprintf("colorkey=0x%s:0.1:0.0,%s", cleanHex, baseFilters)
+	type animProfile struct {
+		duration string
+		fps      string
+		qv       string
+		desc     string
 	}
 
-	// Comando FFmpeg otimizado seguindo padrões do WhatsApp (máx 5s, 512x512, alta compressão, < 500 KB)
-	cmd := exec.Command("ffmpeg",
-		"-i", tmpInput.Name(),
-		"-t", "5",
-		"-vcodec", "libwebp",
-		"-filter:v", filters,
-		"-lossless", "0",
-		"-compression_level", "6",
-		"-q:v", "35",
-		"-loop", "0",
-		"-an",
-		"-f", "webp",
-		tmpOutput,
-	)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("ffmpeg failed: %v, output: %s", err, stderr.String())
+	profiles := []animProfile{
+		{"15", "8", "28", "15s @ 8fps (q:28)"},
+		{"15", "8", "18", "15s @ 8fps menor q:v (q:18)"},
+		{"10", "8", "22", "10s @ 8fps (q:22)"},
+		{"5", "8", "25", "5s @ 8fps (q:25)"},
+		{"3.5", "8", "20", "3.5s @ 8fps (q:20)"},
 	}
 
-	webpData, err := os.ReadFile(tmpOutput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read generated webp: %v", err)
+	var bestWebP []byte
+	var lastErr error
+
+	for _, p := range profiles {
+		baseFilters := fmt.Sprintf("fps=%s,scale=512:512:force_original_aspect_ratio=decrease,format=yuva420p,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0.0", p.fps)
+		filters := baseFilters
+		if transparentColor != "" {
+			cleanHex := strings.ReplaceAll(transparentColor, "#", "")
+			filters = fmt.Sprintf("colorkey=0x%s:0.1:0.0,%s", cleanHex, baseFilters)
+		}
+
+		cmd := exec.Command("ffmpeg",
+			"-y",
+			"-i", tmpInput.Name(),
+			"-t", p.duration,
+			"-vcodec", "libwebp",
+			"-filter:v", filters,
+			"-lossless", "0",
+			"-compression_level", "6",
+			"-q:v", p.qv,
+			"-loop", "0",
+			"-an",
+			"-f", "webp",
+			tmpOutput,
+		)
+
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			lastErr = fmt.Errorf("ffmpeg failed (%s): %v, output: %s", p.desc, err, stderr.String())
+			continue
+		}
+
+		webpData, err := os.ReadFile(tmpOutput)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read generated webp (%s): %v", p.desc, err)
+			continue
+		}
+
+		bestWebP = webpData
+		// Se o arquivo couber no limite estrito do WhatsApp (< 490 KB), retorna imediatamente
+		if len(webpData) <= 490*1024 {
+			return webpData, nil
+		}
 	}
 
-	return webpData, nil
+	if len(bestWebP) > 0 {
+		return bestWebP, nil
+	}
+
+	return nil, lastErr
 }
 
 func convertToWebP(imageDataURL string, transparentColor string) ([]byte, error) {
