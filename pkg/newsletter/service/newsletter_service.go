@@ -19,6 +19,8 @@ type NewsletterService interface {
 	GetNewsletterInvite(data *GetNewsletterInviteStruct, instance *instance_model.Instance) (*types.NewsletterMetadata, error)
 	SubscribeNewsletter(data *GetNewsletterStruct, instance *instance_model.Instance) error
 	GetNewsletterMessages(data *GetNewsletterMessagesStruct, instance *instance_model.Instance) ([]*types.NewsletterMessage, error)
+	FollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error
+	UnfollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error
 }
 
 type newsletterService struct {
@@ -34,6 +36,18 @@ type CreateNewsletterStruct struct {
 
 type GetNewsletterStruct struct {
 	JID types.JID `json:"jid"`
+}
+
+type FollowNewsletterStruct struct {
+	JID          types.JID `json:"jid"`
+	NewsletterID types.JID `json:"newsletterId"`
+}
+
+func (s *FollowNewsletterStruct) GetTargetJID() types.JID {
+	if !s.JID.IsEmpty() {
+		return s.JID
+	}
+	return s.NewsletterID
 }
 
 type GetNewsletterInviteStruct struct {
@@ -179,6 +193,46 @@ func (n *newsletterService) GetNewsletterMessages(data *GetNewsletterMessagesStr
 	}
 
 	return messages, nil
+}
+
+func (n *newsletterService) FollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error {
+	client, err := n.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	targetJID := data.GetTargetJID()
+	if targetJID.IsEmpty() {
+		return errors.New("jid is required")
+	}
+
+	err = client.FollowNewsletter(context.Background(), targetJID)
+	if err != nil {
+		n.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error follow newsletter: %v", instance.Id, err)
+		return err
+	}
+
+	return nil
+}
+
+func (n *newsletterService) UnfollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error {
+	client, err := n.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	targetJID := data.GetTargetJID()
+	if targetJID.IsEmpty() {
+		return errors.New("jid is required")
+	}
+
+	err = client.UnfollowNewsletter(context.Background(), targetJID)
+	if err != nil {
+		n.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error unfollow newsletter: %v", instance.Id, err)
+		return err
+	}
+
+	return nil
 }
 
 func NewNewsletterService(

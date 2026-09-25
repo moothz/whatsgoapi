@@ -15,6 +15,8 @@ type NewsletterHandler interface {
 	GetNewsletterInvite(ctx *gin.Context)
 	SubscribeNewsletter(ctx *gin.Context)
 	GetNewsletterMessages(ctx *gin.Context)
+	FollowNewsletter(ctx *gin.Context)
+	UnfollowNewsletter(ctx *gin.Context)
 }
 
 type newsletterHandler struct {
@@ -251,6 +253,88 @@ func (n *newsletterHandler) GetNewsletterMessages(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": messages})
+}
+
+// Follow newsletter
+// @Summary Follow newsletter
+// @Description Follow newsletter
+// @Tags Newsletter
+// @Accept json
+// @Produce json
+// @Param message body newsletter_service.FollowNewsletterStruct true "Newsletter data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /newsletter/follow [post]
+func (n *newsletterHandler) FollowNewsletter(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *newsletter_service.FollowNewsletterStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GetTargetJID().IsEmpty() {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "jid is required"})
+		return
+	}
+
+	err = n.newsletterService.FollowNewsletter(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success"})
+}
+
+// Unfollow newsletter
+// @Summary Unfollow newsletter
+// @Description Unfollow newsletter
+// @Tags Newsletter
+// @Accept json
+// @Produce json
+// @Param message body newsletter_service.FollowNewsletterStruct true "Newsletter data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /newsletter/unfollow [post]
+func (n *newsletterHandler) UnfollowNewsletter(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *newsletter_service.FollowNewsletterStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.GetTargetJID().IsEmpty() {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "jid is required"})
+		return
+	}
+
+	err = n.newsletterService.UnfollowNewsletter(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success"})
 }
 
 func NewNewsletterHandler(
