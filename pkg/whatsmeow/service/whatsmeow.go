@@ -1207,6 +1207,16 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			dataMap["isQuoted"] = true
 		}
 
+		if adminInvite := evt.Message.GetNewsletterAdminInviteMessage(); adminInvite != nil {
+			mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Newsletter Admin Invite received for channel %s (%s)", mycli.userID, adminInvite.GetNewsletterName(), adminInvite.GetNewsletterJID())
+			dataMap["newsletterAdminInvite"] = map[string]interface{}{
+				"newsletterJID":    adminInvite.GetNewsletterJID(),
+				"newsletterName":   adminInvite.GetNewsletterName(),
+				"caption":          adminInvite.GetCaption(),
+				"inviteExpiration": adminInvite.GetInviteExpiration(),
+			}
+		}
+
 		if mycli.config.WebhookFiles {
 			isMedia := false
 

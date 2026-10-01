@@ -227,6 +227,7 @@ func (r *Routes) AssignRoutes(eng *gin.Engine) {
 			routes.POST("/messages", r.jidValidationMiddleware.ValidateJIDFields("newsletterId"), r.newsletterHandler.GetNewsletterMessages)
 			routes.POST("/follow", r.jidValidationMiddleware.ValidateJIDFields("newsletterId"), r.newsletterHandler.FollowNewsletter)
 			routes.POST("/unfollow", r.jidValidationMiddleware.ValidateJIDFields("newsletterId"), r.newsletterHandler.UnfollowNewsletter)
+			routes.POST("/accept-admin-invite", r.jidValidationMiddleware.ValidateJIDFields("newsletterId"), r.newsletterHandler.AcceptAdminInviteNewsletter)
 		}
 	}
 

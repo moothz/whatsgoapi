@@ -21,6 +21,7 @@ type NewsletterService interface {
 	GetNewsletterMessages(data *GetNewsletterMessagesStruct, instance *instance_model.Instance) ([]*types.NewsletterMessage, error)
 	FollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error
 	UnfollowNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error
+	AcceptAdminInviteNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error
 }
 
 type newsletterService struct {
@@ -229,6 +230,26 @@ func (n *newsletterService) UnfollowNewsletter(data *FollowNewsletterStruct, ins
 	err = client.UnfollowNewsletter(context.Background(), targetJID)
 	if err != nil {
 		n.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error unfollow newsletter: %v", instance.Id, err)
+		return err
+	}
+
+	return nil
+}
+
+func (n *newsletterService) AcceptAdminInviteNewsletter(data *FollowNewsletterStruct, instance *instance_model.Instance) error {
+	client, err := n.ensureClientConnected(instance.Id)
+	if err != nil {
+		return err
+	}
+
+	targetJID := data.GetTargetJID()
+	if targetJID.IsEmpty() {
+		return errors.New("jid is required")
+	}
+
+	err = client.AcceptNewsletterAdminInvite(context.Background(), targetJID)
+	if err != nil {
+		n.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error accept admin invite newsletter: %v", instance.Id, err)
 		return err
 	}
 
