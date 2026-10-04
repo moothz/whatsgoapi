@@ -31,6 +31,7 @@ type MessageService interface {
 	GetMessageStatus(data *MessageStatusStruct, instance *instance_model.Instance) (*message_model.Message, string, error)
 	DeleteMessageEveryone(data *MessageStruct, instance *instance_model.Instance) (string, string, error)
 	EditMessage(data *EditMessageStruct, instance *instance_model.Instance) (string, string, error)
+	PinMessage(data *PinMessageStruct, instance *instance_model.Instance) (string, string, error)
 }
 
 type messageService struct {
@@ -72,6 +73,14 @@ type MessageStruct struct {
 	MessageID   string `json:"messageId"`
 	FromMe      bool   `json:"fromMe"`
 	Participant string `json:"participant,omitempty"`
+}
+
+type PinMessageStruct struct {
+	Chat        string `json:"chat"`
+	MessageID   string `json:"messageId"`
+	FromMe      bool   `json:"fromMe"`
+	Participant string `json:"participant,omitempty"`
+	Type        string `json:"type,omitempty"`
 }
 
 type EditMessageStruct struct {
@@ -440,6 +449,67 @@ func (m *messageService) EditMessage(data *EditMessageStruct, instance *instance
 	return resp.ID, resp.Timestamp.String(), nil
 }
 
+func (m *messageService) PinMessage(data *PinMessageStruct, instance *instance_model.Instance) (string, string, error) {
+	client, err := m.ensureClientConnected(instance.Id)
+	if err != nil {
+		return "", "", err
+	}
+
+	var ts time.Time
+
+	recipient, ok := utils.ParseJID(data.Chat)
+	if !ok {
+		m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating message fields", instance.Id)
+		return "", "", errors.New("invalid phone number")
+	}
+
+	var senderJID types.JID
+	if data.FromMe {
+		senderJID = types.EmptyJID
+	} else {
+		if data.Participant != "" {
+			parsedJID, ok := utils.ParseJID(data.Participant)
+			if !ok {
+				m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error parsing participant JID for non-FromMe message: %s", data.Participant)
+				return "", "", errors.New("invalid participant JID")
+			}
+			senderJID = parsedJID
+		}
+	}
+
+	pinType := waE2E.PinInChatMessage_PIN_FOR_ALL.Enum()
+	if strings.ToLower(data.Type) == "unpin" {
+		pinType = waE2E.PinInChatMessage_UNPIN_FOR_ALL.Enum()
+	}
+
+	messageKey := &waCommon.MessageKey{
+		RemoteJID: proto.String(recipient.String()),
+		FromMe:    proto.Bool(data.FromMe),
+		ID:        proto.String(data.MessageID),
+	}
+	if senderJID != types.EmptyJID {
+		messageKey.Participant = proto.String(senderJID.String())
+	}
+
+	msg := &waE2E.Message{
+		PinInChatMessage: &waE2E.PinInChatMessage{
+			Key:               messageKey,
+			Type:              pinType,
+			SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
+		},
+	}
+
+	m.loggerWrapper.GetLogger(instance.Id).LogInfo("Pinning message %s in %s (type: %v)", data.MessageID, recipient, pinType.String())
+
+	resp, err := client.SendMessage(context.Background(), recipient, msg)
+	if err != nil {
+		m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error pinning message: %v", instance.Id, err)
+		return "", "", err
+	}
+
+	return resp.ID, ts.String(), nil
+}
+
 func NewMessageService(
 	clientPointer map[string]*whatsmeow.Client,
 	messageRepository message_repository.MessageRepository,
@@ -453,3 +523,4 @@ func NewMessageService(
 		loggerWrapper:     loggerWrapper,
 	}
 }
+

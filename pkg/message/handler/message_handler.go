@@ -16,6 +16,7 @@ type MessageHandler interface {
 	GetMessageStatus(ctx *gin.Context)
 	DeleteMessageEveryone(ctx *gin.Context)
 	EditMessage(ctx *gin.Context)
+	PinMessage(ctx *gin.Context)
 }
 
 type messageHandler struct {
@@ -362,6 +363,57 @@ func (m *messageHandler) EditMessage(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": responseData})
 }
 
+// PinMessage pin or unpin a message
+// @Summary Pin or unpin a message
+// @Description Pin or unpin a message in chat
+// @Tags Message
+// @Accept json
+// @Produce json
+// @Param message body message_service.PinMessageStruct true "Pin or unpin a message"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /message/pin [post]
+func (m *messageHandler) PinMessage(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *message_service.PinMessageStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.Chat == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "chat is required"})
+		return
+	}
+
+	if data.MessageID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "messageId is required"})
+		return
+	}
+
+	msgId, ts, err := m.messageService.PinMessage(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	responseData := gin.H{
+		"messageId": msgId,
+		"timestamp": ts,
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": responseData})
+}
+
 func NewMessageHandler(
 	messageService message_service.MessageService,
 ) MessageHandler {
@@ -369,3 +421,4 @@ func NewMessageHandler(
 		messageService: messageService,
 	}
 }
+
