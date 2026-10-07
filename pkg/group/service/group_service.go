@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 	"whatsgo/pkg/utils"
 	whatsmeow_service "whatsgo/pkg/whatsmeow/service"
 	"github.com/gin-gonic/gin"
-	"github.com/vincent-petithory/dataurl"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -275,31 +272,14 @@ func (g *groupService) SetGroupPhoto(data *SetGroupPhotoStruct, instance *instan
 	}
 
 	var fileData []byte
-
-	if strings.HasPrefix(data.Image, "http://") || strings.HasPrefix(data.Image, "https://") {
-		resp, err := http.Get(data.Image)
+	trimmedImage := strings.TrimSpace(data.Image)
+	if trimmedImage != "" && trimmedImage != "remove" {
+		processed, err := utils.ProcessProfilePictureBytes(trimmedImage)
 		if err != nil {
-			g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Could not download image from URL", instance.Id)
-			return "", fmt.Errorf("failed to fetch image from URL: %v", err)
-		}
-		defer resp.Body.Close()
-
-		fileData, err = io.ReadAll(resp.Body)
-		if err != nil {
-			g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Could not read image data from URL", instance.Id)
-			return "", fmt.Errorf("failed to read image data: %v", err)
-		}
-
-	} else if strings.HasPrefix(data.Image, "data:image/jpeg;base64,") || strings.HasPrefix(data.Image, "data:image/png;base64,") {
-		dataURL, err := dataurl.DecodeString(data.Image)
-		if err != nil {
-			g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Could not decode base64 encoded data from payload", instance.Id)
+			g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error processing group photo: %v", instance.Id, err)
 			return "", err
 		}
-		fileData = dataURL.Data
-	} else {
-		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Image data should start with \"data:image/jpeg;base64,\" or be a valid URL", instance.Id)
-		return "", errors.New("image data should be a valid URL or start with \"data:image/jpeg;base64,\"")
+		fileData = processed
 	}
 
 	pictureID, err := client.SetGroupPhoto(context.Background(), recipient, fileData)
