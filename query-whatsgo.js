@@ -19,6 +19,7 @@
  *   node query-whatsgo.js mybot sendMedia 5599999999999@s.whatsapp.net https://example.com/img.jpg image
  *   node query-whatsgo.js mybot sendReaction 120363000@g.us MSG_ID_AQUI 👍
  *   node query-whatsgo.js mybot deleteMessage 120363000@g.us MSG_ID_AQUI true
+ *   node query-whatsgo.js mybot editMessage 120363000@g.us MSG_ID_AQUI "Novo texto editado"
  *   node query-whatsgo.js mybot groupLeave 120363000000000001@g.us
  *   node query-whatsgo.js mybot groupJoin INVITE_CODE
  *   node query-whatsgo.js mybot groupInviteInfo https://chat.whatsapp.com/XXXXXXXX
@@ -602,6 +603,11 @@ async function deleteMessage(chat, messageId, fromMe = true, participant = null)
 	dump("deleteMessage", await apiPost("/message/delete", body));
 }
 
+/** POST /message/edit — Edita uma mensagem enviada */
+async function editMessage(chat, messageId, message) {
+	dump("editMessage", await apiPost("/message/edit", { chat, messageId, message }));
+}
+
 /** POST /message/downloadmedia — Faz download de mídia de uma mensagem */
 async function downloadMedia(messageJson) {
 	// messageJson: objeto message ou string JSON representando o campo Message da mensagem
@@ -659,6 +665,7 @@ const FUNCTIONS = {
 	sendReaction: ([number, messageId, reaction]) => sendReaction(number, messageId, reaction),
 	deleteMessage: ([chat, messageId, fromMe, participant]) =>
 		deleteMessage(chat, messageId, fromMe !== "false", participant),
+	editMessage: ([chat, messageId, message]) => editMessage(chat, messageId, message),
 	downloadMedia: ([messageJson]) => downloadMedia(messageJson)
 };
 
@@ -702,4 +709,9 @@ async function main() {
 	}
 }
 
-main();
+main()
+	.then(() => process.exit(0))
+	.catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
