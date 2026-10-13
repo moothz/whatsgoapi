@@ -155,6 +155,8 @@ func (r *Routes) AssignRoutes(eng *gin.Engine) {
 			routes.POST("/unarchive", r.jidValidationMiddleware.ValidateNumberField(), r.chatHandler.ChatUnarchive) // TODO: not working
 			routes.POST("/mute", r.jidValidationMiddleware.ValidateNumberField(), r.chatHandler.ChatMute)           // TODO: not working
 			routes.POST("/unmute", r.jidValidationMiddleware.ValidateNumberField(), r.chatHandler.ChatUnmute)       // TODO: not working
+			routes.POST("/clear", r.chatHandler.ChatClear)
+			routes.POST("/delete", r.chatHandler.ChatDelete)
 			routes.POST("/history-sync", r.chatHandler.HistorySyncRequest)
 			routes.POST("/commonGroups", r.jidValidationMiddleware.ValidateJIDFields("jid"), r.chatHandler.CommonGroups)
 		}

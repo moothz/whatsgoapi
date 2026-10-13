@@ -44,6 +44,8 @@
  *   node query-whatsgo.js mybot instanceLogout
  *   node query-whatsgo.js mybot instanceDelete
  *   node query-whatsgo.js mybot getCurrentGroups
+ *   node query-whatsgo.js mybot clearChat 120363000000000001@g.us
+ *   node query-whatsgo.js mybot deleteChat 120363000000000001@g.us
  */
 
 // Silencia os logs do dotenv (como "[dotenv@17.2.3] injecting env") se --json estiver ativo
@@ -615,6 +617,16 @@ async function downloadMedia(messageJson) {
 	dump("downloadMedia", await apiPost("/message/downloadmedia", { message }));
 }
 
+/** POST /chat/clear — Limpa histórico de mensagens de uma conversa/grupo */
+async function clearChat(chatJid, deleteMedia = false) {
+	dump("clearChat", await apiPost("/chat/clear", { chat: chatJid, deleteMedia: Boolean(deleteMedia) }));
+}
+
+/** POST /chat/delete — Apaga uma conversa */
+async function deleteChat(chatJid, deleteMedia = false) {
+	dump("deleteChat", await apiPost("/chat/delete", { chat: chatJid, deleteMedia: Boolean(deleteMedia) }));
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────────────────
 const FUNCTIONS = {
 	allInstances: () => allInstances(),
@@ -666,7 +678,10 @@ const FUNCTIONS = {
 	deleteMessage: ([chat, messageId, fromMe, participant]) =>
 		deleteMessage(chat, messageId, fromMe !== "false", participant),
 	editMessage: ([chat, messageId, message]) => editMessage(chat, messageId, message),
-	downloadMedia: ([messageJson]) => downloadMedia(messageJson)
+	downloadMedia: ([messageJson]) => downloadMedia(messageJson),
+
+	clearChat: ([chat, deleteMedia]) => clearChat(chat, deleteMedia === "true" || deleteMedia === "1"),
+	deleteChat: ([chat, deleteMedia]) => deleteChat(chat, deleteMedia === "true" || deleteMedia === "1")
 };
 
 async function main() {

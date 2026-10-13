@@ -22,6 +22,8 @@ type ChatService interface {
 	ChatUnarchive(data *BodyStruct, instance *instance_model.Instance) (string, error)
 	ChatMute(data *BodyStruct, instance *instance_model.Instance) (string, error)
 	ChatUnmute(data *BodyStruct, instance *instance_model.Instance) (string, error)
+	ChatClear(data *ClearChatStruct, instance *instance_model.Instance) (string, error)
+	ChatDelete(data *DeleteChatStruct, instance *instance_model.Instance) (string, error)
 	HistorySyncRequest(data *HistorySyncRequestStruct, instance *instance_model.Instance) (*whatsmeow.SendResponse, error)
 	CommonGroups(data *CommonGroupsStruct, instance *instance_model.Instance) ([]*types.GroupInfo, error)
 }
@@ -34,6 +36,16 @@ type chatService struct {
 
 type BodyStruct struct {
 	Chat string `json:"chat"`
+}
+
+type ClearChatStruct struct {
+	Chat        string `json:"chat"`
+	DeleteMedia bool   `json:"deleteMedia"`
+}
+
+type DeleteChatStruct struct {
+	Chat        string `json:"chat"`
+	DeleteMedia bool   `json:"deleteMedia"`
 }
 
 type HistorySyncRequestStruct struct {
@@ -220,6 +232,52 @@ func (c *chatService) ChatUnmute(data *BodyStruct, instance *instance_model.Inst
 	}
 
 	return ts.String(), nil
+}
+
+func (c *chatService) ChatClear(data *ClearChatStruct, instance *instance_model.Instance) (string, error) {
+	client, err := c.ensureClientConnected(instance.Id)
+	if err != nil {
+		return "", err
+	}
+
+	recipient, ok := utils.ParseJID(data.Chat)
+	if !ok {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating chat field: %s", instance.Id, data.Chat)
+		return "", errors.New("invalid chat jid")
+	}
+
+	c.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Clearing chat %s (deleteMedia: %v)", instance.Id, recipient.String(), data.DeleteMedia)
+
+	err = client.SendAppState(context.Background(), appstate.BuildClearChat(recipient, time.Now(), nil, data.DeleteMedia))
+	if err != nil {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error clear chat: %v", instance.Id, err)
+		return "", err
+	}
+
+	return time.Now().String(), nil
+}
+
+func (c *chatService) ChatDelete(data *DeleteChatStruct, instance *instance_model.Instance) (string, error) {
+	client, err := c.ensureClientConnected(instance.Id)
+	if err != nil {
+		return "", err
+	}
+
+	recipient, ok := utils.ParseJID(data.Chat)
+	if !ok {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating chat field: %s", instance.Id, data.Chat)
+		return "", errors.New("invalid chat jid")
+	}
+
+	c.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Deleting chat %s (deleteMedia: %v)", instance.Id, recipient.String(), data.DeleteMedia)
+
+	err = client.SendAppState(context.Background(), appstate.BuildDeleteChat(recipient, time.Now(), nil, data.DeleteMedia))
+	if err != nil {
+		c.loggerWrapper.GetLogger(instance.Id).LogError("[%s] error delete chat: %v", instance.Id, err)
+		return "", err
+	}
+
+	return time.Now().String(), nil
 }
 
 func (c *chatService) HistorySyncRequest(data *HistorySyncRequestStruct, instance *instance_model.Instance) (*whatsmeow.SendResponse, error) {

@@ -15,6 +15,8 @@ type ChatHandler interface {
 	ChatUnarchive(ctx *gin.Context)
 	ChatMute(ctx *gin.Context)
 	ChatUnmute(ctx *gin.Context)
+	ChatClear(ctx *gin.Context)
+	ChatDelete(ctx *gin.Context)
 	HistorySyncRequest(ctx *gin.Context)
 	CommonGroups(ctx *gin.Context)
 }
@@ -281,6 +283,96 @@ func (c *chatHandler) ChatUnmute(ctx *gin.Context) {
 	}
 
 	ts, err := c.chatService.ChatUnmute(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	responseData := gin.H{
+		"timestamp": ts,
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": responseData})
+}
+
+// Clear messages in a chat
+// @Summary Clear messages in a chat
+// @Description Clear messages in a chat
+// @Tags Chat
+// @Accept json
+// @Produce json
+// @Param message body chat_service.ClearChatStruct true "Chat"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /chat/clear [post]
+func (c *chatHandler) ChatClear(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *chat_service.ClearChatStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.Chat == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "chat is required"})
+		return
+	}
+
+	ts, err := c.chatService.ChatClear(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	responseData := gin.H{
+		"timestamp": ts,
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": responseData})
+}
+
+// Delete a chat
+// @Summary Delete a chat
+// @Description Delete a chat
+// @Tags Chat
+// @Accept json
+// @Produce json
+// @Param message body chat_service.DeleteChatStruct true "Chat"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /chat/delete [post]
+func (c *chatHandler) ChatDelete(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *chat_service.DeleteChatStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.Chat == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "chat is required"})
+		return
+	}
+
+	ts, err := c.chatService.ChatDelete(data, instance)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
