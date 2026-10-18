@@ -1,0 +1,32 @@
+From 7c96cfb8aab4db08ca2c7da16f389f8c87b49678 Mon Sep 17 00:00:00 2001
+From: moothz <m.moothz@gmail.com>
+Date: Wed, 30 Sep 2026 21:22:57 -0300
+Subject: [PATCH 1/2] feat(newsletter): adicionar metodo
+ AcceptNewsletterAdminInvite em whatsmeow-lib
+
+---
+ newsletter.go | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/newsletter.go b/newsletter.go
+index 7a7dfb4..bb0fdfc 100644
+--- a/newsletter.go
++++ b/newsletter.go
+@@ -375,6 +375,14 @@ func (cli *Client) UnfollowNewsletter(ctx context.Context, jid types.JID) error
+ 	return err
+ }
+ 
++// AcceptNewsletterAdminInvite accepts an admin invitation for a WhatsApp channel.
++func (cli *Client) AcceptNewsletterAdminInvite(ctx context.Context, jid types.JID) error {
++	_, err := cli.sendMexIQ(ctx, "6179636105471882", map[string]any{
++		"newsletter_id": jid.String(),
++	})
++	return err
++}
++
+ type GetNewsletterMessagesParams struct {
+ 	Count  int
+ 	Before types.MessageServerID
+-- 
+2.47.3
+

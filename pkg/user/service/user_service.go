@@ -423,7 +423,7 @@ func (u *userService) BlockContact(data *BlockStruct, instance *instance_model.I
 		return nil, errors.New("invalid phone number")
 	}
 
-	resp, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionBlock)
+	resp, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionBlock, "")
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (u *userService) UnlockContact(data *BlockStruct, instance *instance_model.
 		return nil, errors.New("invalid phone number")
 	}
 
-	resp, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionUnblock)
+	resp, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionUnblock, "")
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +456,7 @@ func (u *userService) GetBlockList(instance *instance_model.Instance) (*types.Bl
 		return nil, err
 	}
 
-	resp, err := client.GetBlocklist(context.Background())
+	resp, err := client.GetBlocklist(context.Background(), "")
 	if err != nil {
 		return nil, err
 	}

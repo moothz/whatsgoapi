@@ -1,0 +1,50 @@
+From ef082c994194c6c27fe7fb720aef9750360cba03 Mon Sep 17 00:00:00 2001
+From: moothz <m.moothz@gmail.com>
+Date: Tue, 13 Oct 2026 12:52:28 -0300
+Subject: [PATCH 2/2] =?UTF-8?q?feat(appstate):=20adicionar=20fun=C3=A7?=
+ =?UTF-8?q?=C3=A3o=20BuildClearChat=20para=20sincroniza=C3=A7=C3=A3o=20de?=
+ =?UTF-8?q?=20limpeza=20de=20conversas?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ appstate/encode.go | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/appstate/encode.go b/appstate/encode.go
+index c101a55..143906c 100644
+--- a/appstate/encode.go
++++ b/appstate/encode.go
+@@ -358,6 +358,28 @@ func BuildDeleteChat(target types.JID, lastMessageTimestamp time.Time, lastMessa
+ 	}
+ }
+ 
++// BuildClearChat builds an app state patch for clearing messages in a chat.
++func BuildClearChat(target types.JID, lastMessageTimestamp time.Time, lastMessageKey *waCommon.MessageKey, deleteMedia bool) PatchInfo {
++	action := &waSyncAction.ClearChatAction{
++		MessageRange: newMessageRange(lastMessageTimestamp, lastMessageKey),
++	}
++	deleteMediaInt := "0"
++	if deleteMedia {
++		deleteMediaInt = "1"
++	}
++
++	return PatchInfo{
++		Type: WAPatchRegularHigh,
++		Mutations: []MutationInfo{{
++			Index:   []string{IndexClearChat, target.String(), "0", deleteMediaInt},
++			Version: 6,
++			Value: &waSyncAction.SyncActionValue{
++				ClearChatAction: action,
++			},
++		}},
++	}
++}
++
+ func newMessageRange(lastMessageTimestamp time.Time, lastMessageKey *waCommon.MessageKey) *waSyncAction.SyncActionMessageRange {
+ 	if lastMessageTimestamp.IsZero() {
+ 		lastMessageTimestamp = time.Now()
+-- 
+2.47.3
+
