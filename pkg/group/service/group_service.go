@@ -195,15 +195,19 @@ func (g *groupService) ListGroups(instance *instance_model.Instance) ([]*types.G
 }
 
 func (g *groupService) GetGroupInfo(data *GetGroupInfoStruct, instance *instance_model.Instance) (*types.GroupInfo, error) {
-	client, err := g.ensureClientConnected(instance.Id)
-	if err != nil {
-		return nil, err
-	}
-
 	recipient, ok := utils.ParseJID(data.GroupJID)
 	if !ok {
 		g.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error validating message fields", instance.Id)
 		return nil, errors.New("invalid group jid")
+	}
+
+	if cached, ok := g.whatsmeowService.GetCachedGroupInfo(instance.Id, recipient); ok {
+		return cached, nil
+	}
+
+	client, err := g.ensureClientConnected(instance.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := client.GetGroupInfo(context.Background(), recipient)
@@ -212,6 +216,7 @@ func (g *groupService) GetGroupInfo(data *GetGroupInfoStruct, instance *instance
 		return nil, err
 	}
 
+	g.whatsmeowService.SetCachedGroupInfo(instance.Id, resp)
 	return resp, nil
 }
 
@@ -288,6 +293,7 @@ func (g *groupService) SetGroupPhoto(data *SetGroupPhotoStruct, instance *instan
 		return "", err
 	}
 
+	g.whatsmeowService.InvalidateGroupInfo(instance.Id, recipient)
 	return pictureID, nil
 }
 
@@ -309,6 +315,7 @@ func (g *groupService) SetGroupName(data *SetGroupNameStruct, instance *instance
 		return err
 	}
 
+	g.whatsmeowService.InvalidateGroupInfo(instance.Id, recipient)
 	return nil
 }
 
@@ -330,6 +337,7 @@ func (g *groupService) SetGroupDescription(data *SetGroupDescriptionStruct, inst
 		return err
 	}
 
+	g.whatsmeowService.InvalidateGroupInfo(instance.Id, recipient)
 	return nil
 }
 
@@ -408,6 +416,7 @@ func (g *groupService) UpdateParticipant(data *AddParticipantStruct, instance *i
 		return err
 	}
 
+	g.whatsmeowService.InvalidateGroupInfo(instance.Id, data.GroupJID)
 	return nil
 }
 
@@ -489,6 +498,7 @@ func (g *groupService) SetGroupAnnounce(data *SetGroupAnnounceStruct, instance *
 		return err
 	}
 
+	g.whatsmeowService.InvalidateGroupInfo(instance.Id, recipient)
 	return nil
 }
 
@@ -504,26 +514,32 @@ func (g *groupService) UpdateGroupSettings(data *UpdateGroupSettingsStruct, inst
 		return errors.New("invalid group jid")
 	}
 
+	var actionErr error
 	switch data.Action {
 	case "locked":
-		return client.SetGroupLocked(context.Background(), jid, true)
+		actionErr = client.SetGroupLocked(context.Background(), jid, true)
 	case "unlocked":
-		return client.SetGroupLocked(context.Background(), jid, false)
+		actionErr = client.SetGroupLocked(context.Background(), jid, false)
 	case "announcement":
-		return client.SetGroupAnnounce(context.Background(), jid, true)
+		actionErr = client.SetGroupAnnounce(context.Background(), jid, true)
 	case "not_announcement":
-		return client.SetGroupAnnounce(context.Background(), jid, false)
+		actionErr = client.SetGroupAnnounce(context.Background(), jid, false)
 	case "all_member_add":
-		return client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAllMember)
+		actionErr = client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAllMember)
 	case "admin_add":
-		return client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAdmin)
+		actionErr = client.SetGroupMemberAddMode(context.Background(), jid, types.GroupMemberAddModeAdmin)
 	case "join_approval_on":
-		return client.SetGroupJoinApprovalMode(context.Background(), jid, true)
+		actionErr = client.SetGroupJoinApprovalMode(context.Background(), jid, true)
 	case "join_approval_off":
-		return client.SetGroupJoinApprovalMode(context.Background(), jid, false)
+		actionErr = client.SetGroupJoinApprovalMode(context.Background(), jid, false)
 	default:
 		return fmt.Errorf("invalid action '%s': must be locked, unlocked, announcement, not_announcement, all_member_add, admin_add, join_approval_on, or join_approval_off", data.Action)
 	}
+
+	if actionErr == nil {
+		g.whatsmeowService.InvalidateGroupInfo(instance.Id, jid)
+	}
+	return actionErr
 }
 
 func (g *groupService) GetGroupRequestParticipants(data *GetGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]EnrichedGroupParticipantRequest, error) {

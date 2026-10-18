@@ -57,11 +57,16 @@ type Config struct {
 	CheckUserExists      bool
 
 	// Logger configurations
-	LogMaxSize    int
-	LogMaxBackups int
-	LogMaxAge     int
-	LogDirectory  string
-	LogCompress   bool
+	LogMaxSize              int
+	LogMaxBackups           int
+	LogMaxAge                int
+	LogDirectory             string
+	LogCompress              bool
+	LogLevel                 string
+	LogMessageDetails        bool
+	LogSummaryIntervalSec    int
+	FetchGroupInfoOnMessage  bool
+	GroupInfoCacheTTLMin     int
 }
 
 func (c *Config) CreateUsersDB() (*gorm.DB, error) {
@@ -152,7 +157,10 @@ func Load() *Config {
 
 	webhookFiles := os.Getenv(config_env.WEBHOOKFILES)
 	if webhookFiles == "" {
-		webhookFiles = "true"
+		webhookFiles = os.Getenv("WEBHOOKFILES") // fallback para variável sem underscore
+	}
+	if webhookFiles == "" {
+		webhookFiles = "false" // default false para evitar downloads síncronos indesejados
 	}
 
 	connectOnStartup := os.Getenv(config_env.CONNECT_ON_STARTUP)
@@ -237,44 +245,68 @@ func Load() *Config {
 		logCompress = true // Default compression enabled
 	}
 
+	logLevel := strings.ToUpper(os.Getenv(config_env.LOG_LEVEL))
+	if logLevel == "" {
+		logLevel = "INFO"
+	}
+
+	logMessageDetails := os.Getenv(config_env.LOG_MESSAGE_DETAILS) == "true"
+
+	logSummaryIntervalSec, _ := strconv.Atoi(os.Getenv(config_env.LOG_SUMMARY_INTERVAL_SEC))
+	if os.Getenv(config_env.LOG_SUMMARY_INTERVAL_SEC) == "" {
+		logSummaryIntervalSec = 15 // Default 15s
+	}
+
+	fetchGroupInfoOnMessage := os.Getenv(config_env.FETCH_GROUP_INFO_ON_MESSAGE) == "true"
+
+	groupInfoCacheTTLMin, _ := strconv.Atoi(os.Getenv(config_env.GROUP_INFO_CACHE_TTL_MIN))
+	if groupInfoCacheTTLMin == 0 {
+		groupInfoCacheTTLMin = 30 // Default 30 minutes
+	}
+
 	config := &Config{
-		PostgresAuthDB:       postgresAuthDB,
-		postgresUsersDB:      postgresUsersDB,
-		DatabaseSaveMessages: databaseSaveMessages == "true",
-		GlobalApiKey:         globalApiKey,
-		WaDebug:              waDebug,
-		LogType:              logType,
-		WebhookFiles:         webhookFiles == "true",
-		ConnectOnStartup:     connectOnStartup == "true",
-		OsName:               osName,
-		WebhookUrl:           webhookUrl,
-		ClientName:           clientName,
-		ApiAudioConverter:    apiAudioConverter,
-		ApiAudioConverterKey: apiAudioConverterKey,
-		PostgresHost:         postgresHost,
-		PostgresPort:         postgresPort,
-		PostgresUser:         postgresUser,
-		PostgresPassword:     postgresPassword,
-		PostgresDB:           postgresDB,
-		WhatsappVersionMajor: major,
-		WhatsappVersionMinor: minor,
-		WhatsappVersionPatch: patch,
-		ProxyHost:            proxyHost,
-		ProxyPort:            proxyPort,
-		ProxyUsername:        proxyUsername,
-		ProxyPassword:        proxyPassword,
-		EventIgnoreGroup:     eventIgnoreGroup == "true",
-		EventIgnoreStatus:    eventIgnoreStatus == "true",
-		QrcodeMaxCount:       qrMaxCount,
-		CheckUserExists:      checkUserExists != "false", // Default true, set to false to disable
-		NatsUrl:              natsUrl,
-		NatsGlobalEnabled:    natsGlobalEnabled == "true",
-		NatsGlobalEvents:     natsGlobalEvents,
-		LogMaxSize:           logMaxSize,
-		LogMaxBackups:        logMaxBackups,
-		LogMaxAge:            logMaxAge,
-		LogDirectory:         logDirectory,
-		LogCompress:          logCompress,
+		PostgresAuthDB:          postgresAuthDB,
+		postgresUsersDB:         postgresUsersDB,
+		DatabaseSaveMessages:    databaseSaveMessages == "true",
+		GlobalApiKey:            globalApiKey,
+		WaDebug:                 waDebug,
+		LogType:                 logType,
+		WebhookFiles:            webhookFiles == "true",
+		ConnectOnStartup:        connectOnStartup == "true",
+		OsName:                  osName,
+		WebhookUrl:              webhookUrl,
+		ClientName:              clientName,
+		ApiAudioConverter:       apiAudioConverter,
+		ApiAudioConverterKey:    apiAudioConverterKey,
+		PostgresHost:            postgresHost,
+		PostgresPort:            postgresPort,
+		PostgresUser:            postgresUser,
+		PostgresPassword:        postgresPassword,
+		PostgresDB:              postgresDB,
+		WhatsappVersionMajor:    major,
+		WhatsappVersionMinor:    minor,
+		WhatsappVersionPatch:    patch,
+		ProxyHost:               proxyHost,
+		ProxyPort:               proxyPort,
+		ProxyUsername:           proxyUsername,
+		ProxyPassword:           proxyPassword,
+		EventIgnoreGroup:        eventIgnoreGroup == "true",
+		EventIgnoreStatus:       eventIgnoreStatus == "true",
+		QrcodeMaxCount:          qrMaxCount,
+		CheckUserExists:         checkUserExists != "false", // Default true, set to false to disable
+		NatsUrl:                 natsUrl,
+		NatsGlobalEnabled:       natsGlobalEnabled == "true",
+		NatsGlobalEvents:        natsGlobalEvents,
+		LogMaxSize:              logMaxSize,
+		LogMaxBackups:           logMaxBackups,
+		LogMaxAge:               logMaxAge,
+		LogDirectory:            logDirectory,
+		LogCompress:             logCompress,
+		LogLevel:                logLevel,
+		LogMessageDetails:       logMessageDetails,
+		LogSummaryIntervalSec:   logSummaryIntervalSec,
+		FetchGroupInfoOnMessage: fetchGroupInfoOnMessage,
+		GroupInfoCacheTTLMin:    groupInfoCacheTTLMin,
 	}
 
 	minioEnabled := os.Getenv(config_env.MINIO_ENABLED) == "true"

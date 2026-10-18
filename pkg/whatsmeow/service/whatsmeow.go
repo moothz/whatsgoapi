@@ -59,6 +59,9 @@ type WhatsmeowService interface {
 	UpdateInstanceSettings(instanceId string) error
 	UpdateInstanceAdvancedSettings(instanceId string) error
 	GetLastPasskeyRequest(instanceId string) (*types.WebAuthnPublicKey, error)
+	GetCachedGroupInfo(instanceId string, groupJID types.JID) (*types.GroupInfo, bool)
+	SetCachedGroupInfo(instanceId string, groupInfo *types.GroupInfo)
+	InvalidateGroupInfo(instanceId string, groupJID types.JID)
 }
 
 type clientVersion struct {
@@ -85,6 +88,7 @@ type whatsmeowService struct {
 	processedMessages  *cache.Cache
 	natsProducer       producer_interfaces.Producer
 	loggerWrapper      *logger_wrapper.LoggerManager
+	groupInfoCache     *cache.Cache
 }
 
 type MyClient struct {
@@ -114,6 +118,7 @@ type MyClient struct {
 	loggerWrapper      *logger_wrapper.LoggerManager
 	qrcodeCount        int
 	LastPasskeyRequest *types.WebAuthnPublicKey
+	groupInfoCache     *cache.Cache
 }
 
 type ClientData struct {
@@ -451,6 +456,7 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 		natsProducer:       w.natsProducer,
 		loggerWrapper:      w.loggerWrapper,
 		qrcodeCount:        0,
+		groupInfoCache:     w.groupInfoCache,
 	}
 
 	mycli.eventHandlerID = mycli.WAClient.AddEventHandler(mycli.myEventHandler)
@@ -824,6 +830,21 @@ func processPresenceUpdates(mycli *MyClient) {
 	}
 }
 
+func (mycli *MyClient) logMsgDetail(format string, args ...interface{}) {
+	if mycli.config.LogMessageDetails {
+		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo(format, args...)
+	} else {
+		mycli.loggerWrapper.GetLogger(mycli.userID).LogDebug(format, args...)
+	}
+}
+
+func (mycli *MyClient) isSubscribed(category string) bool {
+	if contains(mycli.subscriptions, "ALL") {
+		return true
+	}
+	return contains(mycli.subscriptions, category)
+}
+
 func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 	userID := mycli.userID
 	postMap := make(map[string]interface{})
@@ -1023,7 +1044,14 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			messageSize = fmt.Sprintf("%d bytes", *evt.Message.GetAudioMessage().FileLength)
 		}
 
-		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] [msg-received][%s][%s] %s (size %s)", mycli.userID, evt.Info.ID, evt.Info.Type, evt.Info.Chat.String(), messageSize)
+		isMediaMsg := evt.Message.GetImageMessage() != nil || evt.Message.GetVideoMessage() != nil ||
+			evt.Message.GetAudioMessage() != nil || evt.Message.GetDocumentMessage() != nil ||
+			evt.Message.GetStickerMessage() != nil
+		if mycli.loggerWrapper != nil && mycli.loggerWrapper.GetStatsTracker() != nil {
+			mycli.loggerWrapper.GetStatsTracker().TrackMessage(mycli.userID, isMediaMsg)
+		}
+
+		mycli.logMsgDetail("[%s] [msg-received][%s][%s] %s (size %s)", mycli.userID, evt.Info.ID, evt.Info.Type, evt.Info.Chat.String(), messageSize)
 
 		// se readMessages for true ele marca como lida
 		if mycli.Instance.ReadMessages {
@@ -1063,7 +1091,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		chatStr := evt.Info.Chat.String()
 
 		if strings.Contains(senderStr, "@lid") && strings.Contains(senderAltStr, "@s.whatsapp.net") {
-			mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] [JID-swap-detected] %s <-> %s", mycli.userID, senderStr, senderAltStr)
+			mycli.logMsgDetail("[%s] [JID-swap-detected] %s <-> %s", mycli.userID, senderStr, senderAltStr)
 
 			// Limpa os IDs antes de fazer a troca
 			cleanSenderAlt := cleanSenderID(senderAltStr)
@@ -1082,7 +1110,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 				evt.Info.SenderAlt = cleanedLID
 			}
 
-			mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] [JID-swap] %s <-> %s @ %s",
+			mycli.logMsgDetail("[%s] [JID-swap] %s <-> %s @ %s",
 				mycli.userID, evt.Info.Sender.String(), evt.Info.SenderAlt.String(), evt.Info.Chat.String())
 		} else {
 			// Comportamento normal: apenas limpa os IDs
@@ -1446,9 +1474,22 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		}
 
 		isGroup := strings.HasSuffix(evt.Info.Chat.String(), "@g.us")
-		if isGroup {
-			groupData, err := mycli.WAClient.GetGroupInfo(context.Background(), evt.Info.Chat)
-			if err == nil {
+		if isGroup && mycli.config.FetchGroupInfoOnMessage {
+			var groupData *types.GroupInfo
+			cacheKey := fmt.Sprintf("%s_%s", mycli.userID, evt.Info.Chat.String())
+			if mycli.groupInfoCache != nil {
+				if cached, found := mycli.groupInfoCache.Get(cacheKey); found {
+					groupData, _ = cached.(*types.GroupInfo)
+				}
+			}
+			if groupData == nil {
+				var err error
+				groupData, err = mycli.WAClient.GetGroupInfo(context.Background(), evt.Info.Chat)
+				if err == nil && mycli.groupInfoCache != nil {
+					mycli.groupInfoCache.Set(cacheKey, groupData, cache.DefaultExpiration)
+				}
+			}
+			if groupData != nil {
 				dataMap["groupData"] = groupData
 			}
 		}
@@ -1477,8 +1518,11 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 
 		postMap["data"] = dataMap
 
-		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] [msg-processed][%s][%s] %s (webhook: %v)", mycli.userID, evt.Info.ID, evt.Info.Type, evt.Info.Chat.String(), doWebhook)
+		mycli.logMsgDetail("[%s] [msg-processed][%s][%s] %s (webhook: %v)", mycli.userID, evt.Info.ID, evt.Info.Type, evt.Info.Chat.String(), doWebhook)
 	case *events.Receipt:
+		if !mycli.isSubscribed("READ_RECEIPT") {
+			return
+		}
 		doWebhook = true
 		postMap["event"] = "Receipt"
 
@@ -1548,6 +1592,9 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			return
 		}
 	case *events.Presence:
+		if !mycli.isSubscribed("PRESENCE") {
+			return
+		}
 		doWebhook = true
 		postMap["event"] = "Presence"
 
@@ -1648,6 +1695,9 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		// Agora mata o canal DEPOIS de enviar o evento
 		mycli.killChannel[mycli.userID] <- true
 	case *events.ChatPresence:
+		if !mycli.isSubscribed("CHAT_PRESENCE") {
+			return
+		}
 		doWebhook = true
 		postMap["event"] = "ChatPresence"
 		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Chat presence received %+v", mycli.userID, evt)
@@ -1773,10 +1823,16 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 	case *events.IdentityChange:
 		doWebhook = false
 	case *events.GroupInfo:
+		if mycli.groupInfoCache != nil {
+			mycli.groupInfoCache.Delete(fmt.Sprintf("%s_%s", mycli.userID, evt.JID.String()))
+		}
 		doWebhook = true
 		postMap["event"] = "GroupInfo"
 		postMap["data"] = evt
 	case *events.JoinedGroup:
+		if mycli.groupInfoCache != nil {
+			mycli.groupInfoCache.Delete(fmt.Sprintf("%s_%s", mycli.userID, evt.JID.String()))
+		}
 		doWebhook = true
 		postMap["event"] = "JoinedGroup"
 		postMap["data"] = evt
@@ -1871,7 +1927,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		}
 
 		dataSize := len(values)
-		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] [webhook-dispatch][%s] %s (%d bytes)", mycli.userID, queueName, eventType, dataSize)
+		mycli.logMsgDetail("[%s] [webhook-dispatch][%s] %s (%d bytes)", mycli.userID, queueName, eventType, dataSize)
 
 		go mycli.service.CallWebhook(mycli.Instance, queueName, values)
 
@@ -1895,27 +1951,10 @@ func (w *whatsmeowService) CallWebhook(instance *instance_model.Instance, queueN
 		return
 	}
 
-	eventArray := strings.Split(instance.Events, ",")
-
-	var subscriptions []string
-
-	if len(eventArray) < 1 {
-		subscriptions = append(subscriptions, event_types.MESSAGE)
-	} else {
-		for _, arg := range eventArray {
-			if !event_types.IsEventType(arg) {
-				w.loggerWrapper.GetLogger(instance.Id).LogWarn("[%s] Message type discarded: %s", instance.Id, arg)
-				continue
-			}
-			if !utils.Find(subscriptions, arg) {
-				subscriptions = append(subscriptions, arg)
-			}
-
-		}
-	}
+	subscriptions := parseSubscriptions(instance.Events)
 
 	if contains(subscriptions, "ALL") {
-		w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+		w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 		w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		return
 	}
@@ -1925,73 +1964,101 @@ func (w *whatsmeowService) CallWebhook(instance *instance_model.Instance, queueN
 	switch eventType {
 	case "Message":
 		if contains(subscriptions, "MESSAGE") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "SendMessage":
 		if contains(subscriptions, "SEND_MESSAGE") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "Receipt":
 		if contains(subscriptions, "READ_RECEIPT") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "Presence":
 		if contains(subscriptions, "PRESENCE") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "HistorySync":
 		if contains(subscriptions, "HISTORY_SYNC") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "ChatPresence", "Archive":
 		if contains(subscriptions, "CHAT_PRESENCE") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "CallOffer", "CallAccept", "CallTerminate", "CallOfferNotice", "CallRelayLatency":
 		if contains(subscriptions, "CALL") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "Connected", "PairSuccess", "TemporaryBan", "LoggedOut", "ConnectFailure", "Disconnected", "PairPasskeyRequest", "PairPasskeyConfirmation", "PairPasskeyError":
 		if contains(subscriptions, "CONNECTION") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "LabelEdit", "LabelAssociationChat", "LabelAssociationMessage":
 		if contains(subscriptions, "LABEL") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "Contact", "PushName":
 		if contains(subscriptions, "CONTACT") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "GroupInfo", "JoinedGroup":
 		if contains(subscriptions, "GROUP") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "NewsletterJoin", "NewsletterLeave":
 		if contains(subscriptions, "NEWSLETTER") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 	case "QRCode", "QRTimeout", "QRSuccess":
 		if contains(subscriptions, "QRCODE") {
-			w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [event] %s", instance.Id, eventType)
+			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
 		}
 
 	default:
 		return
 	}
+}
+
+func parseSubscriptions(instanceEvents string) []string {
+	trimmed := strings.TrimSpace(instanceEvents)
+	if trimmed == "" {
+		return []string{event_types.ALL}
+	}
+	eventArray := strings.Split(trimmed, ",")
+	var subscribedEvents []string
+	for _, arg := range eventArray {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		if strings.EqualFold(arg, event_types.ALL) {
+			return []string{event_types.ALL}
+		}
+		if !event_types.IsEventType(arg) {
+			continue
+		}
+		if !utils.Find(subscribedEvents, arg) {
+			subscribedEvents = append(subscribedEvents, arg)
+		}
+	}
+	if len(subscribedEvents) == 0 {
+		return []string{event_types.ALL}
+	}
+	return subscribedEvents
 }
 
 func contains(subscriptions []string, event string) bool {
@@ -2029,7 +2096,7 @@ func (w *whatsmeowService) sendToQueueOrWebhook(instance *instance_model.Instanc
 			w.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to send message to webhook: %s", instance.Id, err)
 			return
 		}
-		w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [webhook-sent] Success", instance.Id)
+		w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [webhook-sent] Success", instance.Id)
 	}
 }
 
@@ -2062,24 +2129,7 @@ func (w whatsmeowService) StartInstance(instanceId string) error {
 
 	w.userInfoCache.Set(instance.Token, v, cache.NoExpiration)
 
-	eventArray := strings.Split(instance.Events, ",")
-
-	var subscribedEvents []string
-
-	if len(eventArray) < 1 {
-		subscribedEvents = append(subscribedEvents, event_types.MESSAGE)
-	} else {
-		for _, arg := range eventArray {
-			if !event_types.IsEventType(arg) {
-				w.loggerWrapper.GetLogger(instanceId).LogWarn("[%s] Message type discarded: %s", instanceId, arg)
-				continue
-			}
-			if !utils.Find(subscribedEvents, arg) {
-				subscribedEvents = append(subscribedEvents, arg)
-			}
-
-		}
-	}
+	subscribedEvents := parseSubscriptions(instance.Events)
 
 	w.killChannel[instance.Id] = make(chan bool)
 
@@ -2299,23 +2349,7 @@ func (w whatsmeowService) UpdateInstanceSettings(instanceId string) error {
 	myClient.natsEnable = instance.NatsEnable
 	myClient.websocketEnable = instance.WebSocketEnable
 
-	// Atualiza as subscriptions se os eventos mudaram
-	eventArray := strings.Split(instance.Events, ",")
-	var subscribedEvents []string
-
-	if len(eventArray) < 1 {
-		subscribedEvents = append(subscribedEvents, event_types.MESSAGE)
-	} else {
-		for _, arg := range eventArray {
-			if !event_types.IsEventType(arg) {
-				w.loggerWrapper.GetLogger(instanceId).LogWarn("[%s] Message type discarded: %s", instanceId, arg)
-				continue
-			}
-			if !utils.Find(subscribedEvents, arg) {
-				subscribedEvents = append(subscribedEvents, arg)
-			}
-		}
-	}
+	subscribedEvents := parseSubscriptions(instance.Events)
 
 	myClient.subscriptions = subscribedEvents
 
@@ -2409,6 +2443,12 @@ func NewWhatsmeowService(
 	natsProducer producer_interfaces.Producer,
 	loggerWrapper *logger_wrapper.LoggerManager,
 ) WhatsmeowService {
+	groupInfoTTL := time.Duration(config.GroupInfoCacheTTLMin) * time.Minute
+	if groupInfoTTL <= 0 {
+		groupInfoTTL = 30 * time.Minute
+	}
+	groupInfoCache := cache.New(groupInfoTTL, 10*time.Minute)
+
 	return &whatsmeowService{
 		instanceRepository: instanceRepository,
 		authDB:             authDB,
@@ -2427,6 +2467,7 @@ func NewWhatsmeowService(
 		processedMessages:  cache.New(30*time.Minute, 1*time.Hour),
 		natsProducer:       natsProducer,
 		loggerWrapper:      loggerWrapper,
+		groupInfoCache:     groupInfoCache,
 	}
 }
 
@@ -2449,5 +2490,34 @@ func (w *whatsmeowService) GetLastPasskeyRequest(instanceId string) (*types.WebA
 		return nil, fmt.Errorf("client not found")
 	}
 	return myClient.LastPasskeyRequest, nil
+}
+
+func (w *whatsmeowService) GetCachedGroupInfo(instanceId string, groupJID types.JID) (*types.GroupInfo, bool) {
+	if w.groupInfoCache == nil {
+		return nil, false
+	}
+	cacheKey := fmt.Sprintf("%s:%s", instanceId, groupJID.String())
+	if val, found := w.groupInfoCache.Get(cacheKey); found {
+		if info, ok := val.(*types.GroupInfo); ok {
+			return info, true
+		}
+	}
+	return nil, false
+}
+
+func (w *whatsmeowService) SetCachedGroupInfo(instanceId string, groupInfo *types.GroupInfo) {
+	if w.groupInfoCache == nil || groupInfo == nil {
+		return
+	}
+	cacheKey := fmt.Sprintf("%s:%s", instanceId, groupInfo.JID.String())
+	w.groupInfoCache.Set(cacheKey, groupInfo, cache.DefaultExpiration)
+}
+
+func (w *whatsmeowService) InvalidateGroupInfo(instanceId string, groupJID types.JID) {
+	if w.groupInfoCache == nil {
+		return
+	}
+	cacheKey := fmt.Sprintf("%s:%s", instanceId, groupJID.String())
+	w.groupInfoCache.Delete(cacheKey)
 }
 

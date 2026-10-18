@@ -13,6 +13,15 @@ import (
 	logger_wrapper "whatsgo/pkg/logger"
 )
 
+var sharedHttpClient = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 type webhookProducer struct {
 	url           string
 	loggerWrapper *logger_wrapper.LoggerManager
@@ -54,12 +63,19 @@ func (p *webhookProducer) sendWebhookWithRetry(url string, body []byte, maxRetri
 	for i := 0; i < maxRetries; i++ {
 		err, _, statusCode := p.sendWebhook(url, body, userID)
 		if err == nil {
-			p.loggerWrapper.GetLogger(userID).LogInfo("[%s] [webhook][%s] -> [Success, %d]", userID, queueName, statusCode)
+			p.loggerWrapper.GetLogger(userID).LogDebug("[%s] [webhook][%s] -> [Success, %d]", userID, queueName, statusCode)
+			if p.loggerWrapper.GetStatsTracker() != nil {
+				p.loggerWrapper.GetStatsTracker().TrackWebhook(userID, true)
+			}
 			return
 		}
 		p.loggerWrapper.GetLogger(userID).LogWarn("[%s] [webhook-failed][%s] Attempt %d: %v", userID, queueName, i+1, err)
 
 		time.Sleep(retryInterval)
+	}
+
+	if p.loggerWrapper.GetStatsTracker() != nil {
+		p.loggerWrapper.GetStatsTracker().TrackWebhook(userID, false)
 	}
 	p.loggerWrapper.GetLogger(userID).LogError("[%s] [webhook-error][%s] Max retries reached: %s", userID, queueName, url)
 }
@@ -72,8 +88,7 @@ func (p *webhookProducer) sendWebhook(url string, body []byte, userID string) (e
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := sharedHttpClient.Do(req)
 	if err != nil {
 		return err, nil, 0
 	}
