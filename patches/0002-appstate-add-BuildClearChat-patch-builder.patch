@@ -1,0 +1,129 @@
+From 0c7919005db35f6d19572c9fb67a345da2a82a9b Mon Sep 17 00:00:00 2001
+From: moothz <m.moothz@gmail.com>
+Date: Sun, 18 Oct 2026 16:40:31 -0300
+Subject: [PATCH] appstate: add BuildClearChat patch builder
+
+---
+ appstate/encode.go      | 22 ++++++++++++
+ appstate/encode_test.go | 76 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 98 insertions(+)
+ create mode 100644 appstate/encode_test.go
+
+diff --git a/appstate/encode.go b/appstate/encode.go
+index 88a4110..3375919 100644
+--- a/appstate/encode.go
++++ b/appstate/encode.go
+@@ -358,6 +358,28 @@ func BuildDeleteChat(target types.JID, lastMessageTimestamp time.Time, lastMessa
+ 	}
+ }
+ 
++// BuildClearChat builds an app state patch for clearing messages in a chat.
++func BuildClearChat(target types.JID, lastMessageTimestamp time.Time, lastMessageKey *waCommon.MessageKey, deleteMedia bool) PatchInfo {
++	action := &waSyncAction.ClearChatAction{
++		MessageRange: newMessageRange(lastMessageTimestamp, lastMessageKey),
++	}
++	deleteMediaInt := "0"
++	if deleteMedia {
++		deleteMediaInt = "1"
++	}
++
++	return PatchInfo{
++		Type: WAPatchRegularHigh,
++		Mutations: []MutationInfo{{
++			Index:   []string{IndexClearChat, target.String(), "0", deleteMediaInt},
++			Version: 6,
++			Value: &waSyncAction.SyncActionValue{
++				ClearChatAction: action,
++			},
++		}},
++	}
++}
++
+ func newMessageRange(lastMessageTimestamp time.Time, lastMessageKey *waCommon.MessageKey) *waSyncAction.SyncActionMessageRange {
+ 	if lastMessageTimestamp.IsZero() {
+ 		lastMessageTimestamp = time.Now()
+diff --git a/appstate/encode_test.go b/appstate/encode_test.go
+new file mode 100644
+index 0000000..0f46aed
+--- /dev/null
++++ b/appstate/encode_test.go
+@@ -0,0 +1,76 @@
++// Copyright (c) 2026 Tulir Asokan
++//
++// This Source Code Form is subject to the terms of the Mozilla Public
++// License, v. 2.0. If a copy of the MPL was not distributed with this
++// file, You can obtain one at http://mozilla.org/MPL/2.0/.
++
++package appstate_test
++
++import (
++	"reflect"
++	"testing"
++	"time"
++
++	"google.golang.org/protobuf/proto"
++
++	"go.mau.fi/whatsmeow/appstate"
++	"go.mau.fi/whatsmeow/proto/waCommon"
++	"go.mau.fi/whatsmeow/types"
++)
++
++func TestBuildClearChat(t *testing.T) {
++	jid := types.NewJID("1234567890", types.DefaultUserServer)
++	now := time.Unix(1700000000, 0)
++	key := &waCommon.MessageKey{
++		RemoteJID: proto.String(jid.String()),
++		FromMe:    proto.Bool(true),
++		ID:        proto.String("TEST_MSG_ID"),
++	}
++
++	t.Run("without delete media", func(t *testing.T) {
++		patch := appstate.BuildClearChat(jid, now, key, false)
++		if patch.Type != appstate.WAPatchRegularHigh {
++			t.Errorf("expected patch type %v, got %v", appstate.WAPatchRegularHigh, patch.Type)
++		}
++		if len(patch.Mutations) != 1 {
++			t.Fatalf("expected 1 mutation, got %d", len(patch.Mutations))
++		}
++		mut := patch.Mutations[0]
++		expectedIndex := []string{appstate.IndexClearChat, jid.String(), "0", "0"}
++		if !reflect.DeepEqual(mut.Index, expectedIndex) {
++			t.Errorf("expected index %v, got %v", expectedIndex, mut.Index)
++		}
++		action := mut.Value.GetClearChatAction()
++		if action == nil {
++			t.Fatal("expected ClearChatAction, got nil")
++		}
++		if action.GetMessageRange().GetLastMessageTimestamp() != now.Unix() {
++			t.Errorf("expected timestamp %d, got %d", now.Unix(), action.GetMessageRange().GetLastMessageTimestamp())
++		}
++		if len(action.GetMessageRange().GetMessages()) != 1 {
++			t.Fatalf("expected 1 message in range, got %d", len(action.GetMessageRange().GetMessages()))
++		}
++		if action.GetMessageRange().GetMessages()[0].GetKey().GetID() != "TEST_MSG_ID" {
++			t.Errorf("expected message ID TEST_MSG_ID, got %s", action.GetMessageRange().GetMessages()[0].GetKey().GetID())
++		}
++	})
++
++	t.Run("with delete media", func(t *testing.T) {
++		patch := appstate.BuildClearChat(jid, now, nil, true)
++		if len(patch.Mutations) != 1 {
++			t.Fatalf("expected 1 mutation, got %d", len(patch.Mutations))
++		}
++		mut := patch.Mutations[0]
++		expectedIndex := []string{appstate.IndexClearChat, jid.String(), "0", "1"}
++		if !reflect.DeepEqual(mut.Index, expectedIndex) {
++			t.Errorf("expected index %v, got %v", expectedIndex, mut.Index)
++		}
++		action := mut.Value.GetClearChatAction()
++		if action == nil {
++			t.Fatal("expected ClearChatAction, got nil")
++		}
++		if len(action.GetMessageRange().GetMessages()) != 0 {
++			t.Errorf("expected 0 messages in range, got %d", len(action.GetMessageRange().GetMessages()))
++		}
++	})
++}
+-- 
+2.47.3
+

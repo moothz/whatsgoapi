@@ -1,0 +1,39 @@
+From 572e82e3334f3fc8cadb5b8479af4c19b91fead6 Mon Sep 17 00:00:00 2001
+From: moothz <m.moothz@gmail.com>
+Date: Sun, 18 Oct 2026 16:36:55 -0300
+Subject: [PATCH] newsletter: add AcceptNewsletterAdminInvite method
+
+---
+ newsletter.go | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/newsletter.go b/newsletter.go
+index 7a7dfb4..ea03fd0 100644
+--- a/newsletter.go
++++ b/newsletter.go
+@@ -124,6 +124,7 @@ const (
+ 	mutationCreateNewsletter       = "6234210096708695"
+ 	mutationUnfollowNewsletter     = "6392786840836363"
+ 	mutationFollowNewsletter       = "9926858900719341"
++	mutationAcceptNewsletterAdminInvite = "6179636105471882"
+ 
+ 	// desktop & mobile
+ 	queryFetchNewsletterDesktop        = "9779843322044422"
+@@ -375,6 +376,14 @@ func (cli *Client) UnfollowNewsletter(ctx context.Context, jid types.JID) error
+ 	return err
+ }
+ 
++// AcceptNewsletterAdminInvite accepts an admin invitation for a WhatsApp channel.
++func (cli *Client) AcceptNewsletterAdminInvite(ctx context.Context, jid types.JID) error {
++	_, err := cli.sendMexIQ(ctx, mutationAcceptNewsletterAdminInvite, map[string]any{
++		"newsletter_id": jid.String(),
++	})
++	return err
++}
++
+ type GetNewsletterMessagesParams struct {
+ 	Count  int
+ 	Before types.MessageServerID
+-- 
+2.47.3
+
