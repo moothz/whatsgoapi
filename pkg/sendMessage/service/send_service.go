@@ -132,6 +132,11 @@ type StickerStruct struct {
 	FormatJid        *bool        `json:"formatJid,omitempty"`
 	TransparentColor string       `json:"transparentColor,omitempty"`
 	Quoted           QuotedStruct `json:"quoted"`
+	PackName         string       `json:"pack_name,omitempty"`
+	Author           string       `json:"author,omitempty"`
+	StickerName      string       `json:"sticker_name,omitempty"`
+	StickerAuthor    string       `json:"sticker_author,omitempty"`
+	Emojis           []string     `json:"emojis,omitempty"`
 }
 
 type LocationStruct struct {
@@ -1412,6 +1417,40 @@ func (s *sendService) SendSticker(data *StickerStruct, instance *instance_model.
 		}
 
 		filedata = webpData
+
+		// Resolver metadados com a hierarquia de fallbacks
+		author := data.Author
+		if author == "" {
+			author = data.StickerAuthor
+		}
+		if author == "" {
+			if instance != nil && instance.Name != "" {
+				author = instance.Name
+			} else {
+				author = "whatsgo"
+			}
+		}
+
+		packName := data.PackName
+		if packName == "" {
+			packName = data.StickerName
+		}
+		if packName == "" {
+			packName = author
+		}
+
+		meta := utils.StickerMetadata{
+			PackName:  packName,
+			Publisher: author,
+			Emojis:    data.Emojis,
+		}
+
+		injectedWebP, err := utils.InjectStickerExif(filedata, meta)
+		if err == nil {
+			filedata = injectedWebP
+		} else {
+			s.loggerWrapper.GetLogger(instance.Id).LogWarn("[%s] Falha ao injetar metadados EXIF no sticker: %v", instance.Id, err)
+		}
 
 		uploaded, err = client.Upload(context.Background(), filedata, whatsmeow.MediaImage)
 		if err != nil {

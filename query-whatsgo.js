@@ -565,8 +565,11 @@ async function sendMedia(number, url, type = "image", caption = null) {
 }
 
 /** POST /send/sticker — Envia sticker por URL */
-async function sendSticker(number, stickerUrl) {
-	dump("sendSticker", await apiPost("/send/sticker", { number, sticker: stickerUrl, delay: 0 }));
+async function sendSticker(number, stickerUrl, packName, author) {
+	const body = { number, sticker: stickerUrl, delay: 0 };
+	if (packName) body.pack_name = packName;
+	if (author) body.author = author;
+	dump("sendSticker", await apiPost("/send/sticker", body));
 }
 
 /** POST /send/location — Envia localização */
@@ -669,7 +672,7 @@ const FUNCTIONS = {
 
 	sendText: ([number, text, quotedId]) => sendText(number, text, quotedId),
 	sendMedia: ([number, url, type, caption]) => sendMedia(number, url, type, caption),
-	sendSticker: ([number, url]) => sendSticker(number, url),
+	sendSticker: ([number, url, packName, author]) => sendSticker(number, url, packName, author),
 	sendLocation: ([number, lat, lon, name, addr]) =>
 		sendLocation(number, parseFloat(lat), parseFloat(lon), name, addr),
 	sendContact: ([number, fullName, phone]) => sendContact(number, fullName, phone),
