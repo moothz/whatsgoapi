@@ -309,7 +309,7 @@ func Load() *Config {
 		GroupInfoCacheTTLMin:    groupInfoCacheTTLMin,
 	}
 
-	minioEnabled := os.Getenv(config_env.MINIO_ENABLED) == "true"
+	minioEnabled := os.Getenv(config_env.S3_ENABLED) == "true" || os.Getenv(config_env.MINIO_ENABLED) == "true"
 	if minioEnabled {
 		config.MinioEnabled = true
 		loadMinioConfig(config)
@@ -318,22 +318,34 @@ func Load() *Config {
 	return config
 }
 
+func getEnvFallback(primary, fallback string) string {
+	val := os.Getenv(primary)
+	if val != "" {
+		return val
+	}
+	return os.Getenv(fallback)
+}
+
 func loadMinioConfig(config *Config) {
-	minioEndpoint := os.Getenv(config_env.MINIO_ENDPOINT)
-	panicIfEmpty(config_env.MINIO_ENDPOINT, minioEndpoint)
+	minioEndpoint := getEnvFallback(config_env.S3_ENDPOINT, config_env.MINIO_ENDPOINT)
+	panicIfEmpty("S3_ENDPOINT / MINIO_ENDPOINT", minioEndpoint)
 
-	minioAccessKey := os.Getenv(config_env.MINIO_ACCESS_KEY)
-	panicIfEmpty(config_env.MINIO_ACCESS_KEY, minioAccessKey)
+	minioAccessKey := getEnvFallback(config_env.S3_ACCESS_KEY, config_env.MINIO_ACCESS_KEY)
+	panicIfEmpty("S3_ACCESS_KEY / MINIO_ACCESS_KEY", minioAccessKey)
 
-	minioSecretKey := os.Getenv(config_env.MINIO_SECRET_KEY)
-	panicIfEmpty(config_env.MINIO_SECRET_KEY, minioSecretKey)
+	minioSecretKey := getEnvFallback(config_env.S3_SECRET_KEY, config_env.MINIO_SECRET_KEY)
+	panicIfEmpty("S3_SECRET_KEY / MINIO_SECRET_KEY", minioSecretKey)
 
-	minioBucket := os.Getenv(config_env.MINIO_BUCKET)
-	panicIfEmpty(config_env.MINIO_BUCKET, minioBucket)
+	minioBucket := os.Getenv(config_env.S3_BUCKET_MEDIA)
+	if minioBucket == "" {
+		minioBucket = getEnvFallback(config_env.S3_BUCKET, config_env.MINIO_BUCKET)
+	}
+	panicIfEmpty("S3_BUCKET / MINIO_BUCKET", minioBucket)
 
-	minioUseSSL := os.Getenv(config_env.MINIO_USE_SSL) == "true"
+	useSSLStr := getEnvFallback(config_env.S3_USE_SSL, config_env.MINIO_USE_SSL)
+	minioUseSSL := useSSLStr == "true"
 
-	minioRegion := os.Getenv(config_env.MINIO_REGION)
+	minioRegion := getEnvFallback(config_env.S3_REGION, config_env.MINIO_REGION)
 
 	config.MinioEndpoint = minioEndpoint
 	config.MinioAccessKey = minioAccessKey
