@@ -1,0 +1,43 @@
+From 8dd69f7ba98d8425fb08fabdbb2b5c32055d403e Mon Sep 17 00:00:00 2001
+From: moothz <m.moothz@gmail.com>
+Date: Wed, 28 Oct 2026 21:53:09 -0300
+Subject: [PATCH 4/4] fix(client): abortar envios expirados na fila de lock e
+ reduzir timeout de keepalive para 90s
+
+- Verifica ctx.Err() imediatamente apos adquirir cli.messageSendLock.Lock() em SendMessage para abortar envios que sofreram timeout enquanto aguardavam na fila
+- Reduz KeepAliveMaxFailTime de 3 minutos para 90 segundos em keepalive.go para acelerar a deteccao e reconexao automatica de sockets WebSocket half-open
+---
+ keepalive.go | 2 +-
+ send.go      | 3 +++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/keepalive.go b/keepalive.go
+index 8c50e7b..1b8950c 100644
+--- a/keepalive.go
++++ b/keepalive.go
+@@ -24,7 +24,7 @@ var (
+ 	KeepAliveIntervalMax = 30 * time.Second
+ 
+ 	// KeepAliveMaxFailTime specifies the maximum time to wait before forcing a reconnect if keepalives fail repeatedly.
+-	KeepAliveMaxFailTime = 3 * time.Minute
++	KeepAliveMaxFailTime = 90 * time.Second
+ )
+ 
+ func (cli *Client) keepAliveLoop(ctx, connCtx context.Context) {
+diff --git a/send.go b/send.go
+index f2ce0f8..66fb78b 100644
+--- a/send.go
++++ b/send.go
+@@ -389,6 +389,9 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
+ 	cli.messageSendLock.Lock()
+ 	resp.DebugTimings.Queue = time.Since(start)
+ 	defer cli.messageSendLock.Unlock()
++	if err = ctx.Err(); err != nil {
++		return
++	}
+ 
+ 	// Peer message retries aren't implemented yet
+ 	if !req.Peer {
+-- 
+2.47.3
+
