@@ -451,12 +451,15 @@ func (s *sendService) sendTextWithRetry(data *TextStruct, instance *instance_mod
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendText attempt %d/%d", instance.Id, attempt, maxRetries)
 
-		_, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
+		client, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 		if err != nil {
 			if attempt == maxRetries {
 				return nil, err
 			}
 			continue
+		}
+		if data.Id == "" && client != nil {
+			data.Id = client.GenerateMessageID()
 		}
 
 		msg := &waE2E.Message{
@@ -555,12 +558,15 @@ func (s *sendService) sendLinkWithRetry(data *LinkStruct, instance *instance_mod
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendLink attempt %d/%d", instance.Id, attempt, maxRetries)
 
-		_, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
+		client, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 		if err != nil {
 			if attempt == maxRetries {
 				return nil, err
 			}
 			continue
+		}
+		if data.Id == "" && client != nil {
+			data.Id = client.GenerateMessageID()
 		}
 
 		matchedText := findURL(data.Text)
@@ -797,6 +803,9 @@ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte,
 			}
 			continue
 		}
+		if data.Id == "" && client != nil {
+			data.Id = client.GenerateMessageID()
+		}
 
 		mime, _ := mimetype.DetectReader(bytes.NewReader(fileData))
 		mimeType := mime.String()
@@ -998,6 +1007,9 @@ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instanc
 				return nil, err
 			}
 			continue
+		}
+		if data.Id == "" && client != nil {
+			data.Id = client.GenerateMessageID()
 		}
 
 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Iniciando download da URL: %s", instance.Id, data.Url)
@@ -1244,6 +1256,9 @@ func (s *sendService) sendPollWithRetry(data *PollStruct, instance *instance_mod
 			}
 			continue
 		}
+		if data.Id == "" && client != nil {
+			data.Id = client.GenerateMessageID()
+		}
 
 		msg := client.BuildPollCreation(data.Question, data.Options, data.MaxAnswer)
 
@@ -1402,7 +1417,7 @@ func convertToWebP(imageDataURL string, transparentColor string) ([]byte, error)
 }
 
 func (s *sendService) SendSticker(data *StickerStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
-	client, err := s.ensureClientConnected(instance.Id)
+	client, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -1489,7 +1504,7 @@ func (s *sendService) SendSticker(data *StickerStruct, instance *instance_model.
 }
 
 func (s *sendService) SendLocation(data *LocationStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
-	_, err := s.ensureClientConnected(instance.Id)
+	_, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -1518,7 +1533,7 @@ func (s *sendService) SendLocation(data *LocationStruct, instance *instance_mode
 }
 
 func (s *sendService) SendContact(data *ContactStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
-	_, err := s.ensureClientConnected(instance.Id)
+	_, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -1570,7 +1585,7 @@ func mapKeyType(keyType string) string {
 }
 
 func (s *sendService) SendButton(data *ButtonStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
-	client, err := s.ensureClientConnected(instance.Id)
+	client, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -1928,8 +1943,9 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
 	}
 
 	isMedia := false
+	hasValidQuote := data.Quoted.MessageID != "" && (!strings.Contains(data.Number, "@g.us") || data.Quoted.Participant != "")
 
-	if data.Quoted.MessageID != "" {
+	if hasValidQuote {
 		switch messageType {
 		case "ExtendedTextMessage":
 			msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
@@ -2122,7 +2138,10 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
 
 	recipient.User = strings.ReplaceAll(recipient.User, "+", "")
 
-	response, err := s.clientPointer[instance.Id].SendMessage(context.Background(), recipient, msg, whatsmeow.SendRequestExtra{ID: message})
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 50*time.Second)
+	defer sendCancel()
+
+	response, err := s.clientPointer[instance.Id].SendMessage(sendCtx, recipient, msg, whatsmeow.SendRequestExtra{ID: message})
 	if err != nil {
 		return nil, err
 	}

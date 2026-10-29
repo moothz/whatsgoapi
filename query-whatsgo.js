@@ -670,7 +670,14 @@ const FUNCTIONS = {
 	updatePhoto: ([imageUrl]) => updatePhoto(imageUrl),
 	commonGroups: ([jid]) => commonGroups(jid),
 
-	sendText: ([number, text, quotedId]) => sendText(number, text, quotedId),
+	sendText: (args) => {
+		const [number, ...rest] = args;
+		if (rest.length > 1 && /^[0-9A-F]{16,}$/i.test(rest[rest.length - 1])) {
+			const quotedId = rest.pop();
+			return sendText(number, rest.join(" "), quotedId);
+		}
+		return sendText(number, rest.join(" "), null);
+	},
 	sendMedia: ([number, url, type, caption]) => sendMedia(number, url, type, caption),
 	sendSticker: ([number, url, packName, author]) => sendSticker(number, url, packName, author),
 	sendLocation: ([number, lat, lon, name, addr]) =>
