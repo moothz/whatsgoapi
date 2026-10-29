@@ -268,28 +268,23 @@ func (i instances) Connect(data *ConnectStruct, instance *instance_model.Instanc
 		}
 
 		go i.whatsmeowService.StartClient(clientData)
+	} else if i.clientPointer[instance.Id] == nil || !i.clientPointer[instance.Id].IsConnected() {
+		i.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Instance in runtime but websocket is disconnected, triggering reconnect", instance.Id)
+		go func(id string) {
+			if err := i.whatsmeowService.ReconnectClient(id); err != nil {
+				i.loggerWrapper.GetLogger(id).LogError("[%s] Failed to reconnect client during Connect: %v", id, err)
+			}
+		}(instance.Id)
 	} else {
 		i.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Instance already running, settings updated without restarting client", instance.Id)
 	}
-
-	// logger.LogInfo("Waiting 1 seconds")
-	// time.Sleep(1000 * time.Millisecond)
-
-	// if i.clientPointer[instance.Id] != nil {
-	// 	if !i.clientPointer[instance.Id].IsConnected() {
-	// 		return instance, "", "", fmt.Errorf("failed to connect")
-	// 	}
-	// } else {
-	// 	return instance, "", "", fmt.Errorf("failed to connect")
-	// }
 
 	return instance, instance.Jid, eventString, nil
 }
 
 func (i instances) Reconnect(instance *instance_model.Instance) error {
-	_, err := i.ensureClientConnected(instance.Id)
-	if err != nil {
-		return err
+	if i.clientPointer[instance.Id] == nil {
+		return i.whatsmeowService.StartInstance(instance.Id)
 	}
 
 	return i.whatsmeowService.ReconnectClient(instance.Id)
