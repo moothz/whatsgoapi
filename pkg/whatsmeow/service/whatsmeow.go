@@ -98,6 +98,7 @@ type whatsmeowService struct {
 	cachedWAVersion    *clientVersion
 	cachedWAVerTime    time.Time
 	versionMu          sync.Mutex
+	maintenanceOnce    sync.Once
 }
 
 type MyClient struct {
@@ -224,6 +225,74 @@ func (w *whatsmeowService) getSharedContainer() (*sqlstore.Container, error) {
 	w.mainSQLDB = db
 	w.sharedContainer = container
 	return container, nil
+}
+
+func (w *whatsmeowService) startDatabaseMaintenance() {
+	w.maintenanceOnce.Do(func() {
+		if w.mainSQLDB == nil {
+			return
+		}
+
+		// 1. Checkpoint PASSIVE a cada 15 minutos para manter o arquivo WAL enxuto durante o dia
+		go func() {
+			ticker := time.NewTicker(15 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				if w.mainSQLDB == nil {
+					continue
+				}
+				_, _ = w.mainSQLDB.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+			}
+		}()
+
+		// 2. Janela diária de manutenção na madrugada (05:15 BRT)
+		go func() {
+			loc, err := time.LoadLocation("America/Sao_Paulo")
+			if err != nil {
+				loc = time.FixedZone("BRT", -3*3600)
+			}
+			for {
+				now := time.Now().In(loc)
+				nextRun := time.Date(now.Year(), now.Month(), now.Day(), 5, 15, 0, 0, loc)
+				if now.After(nextRun) {
+					nextRun = nextRun.Add(24 * time.Hour)
+				}
+				delay := nextRun.Sub(now)
+				w.loggerWrapper.GetLogger("system").LogInfo("Next scheduled database maintenance at %s (in %v)", nextRun.Format(time.RFC3339), delay.Round(time.Minute))
+				time.Sleep(delay)
+
+				if w.mainSQLDB == nil {
+					continue
+				}
+
+				start := time.Now()
+				w.loggerWrapper.GetLogger("system").LogInfo("Starting scheduled daily database maintenance (05:15 BRT)...")
+
+				var freelistCount int64
+				_ = w.mainSQLDB.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount)
+
+				// Trunca frames do WAL de volta para o main.db
+				if _, err := w.mainSQLDB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+					w.loggerWrapper.GetLogger("system").LogWarn("WAL truncate checkpoint error: %v", err)
+				}
+
+				// Se a freelist tiver mais de 50.000 páginas (~200MB de espaço vazio), executa VACUUM
+				if freelistCount > 50000 {
+					w.loggerWrapper.GetLogger("system").LogInfo("Freelist has %d pages (~%d MB). Running VACUUM...", freelistCount, (freelistCount*4096)/(1024*1024))
+					if _, err := w.mainSQLDB.Exec(`VACUUM`); err != nil {
+						w.loggerWrapper.GetLogger("system").LogError("VACUUM failed: %v", err)
+					} else {
+						w.loggerWrapper.GetLogger("system").LogInfo("VACUUM completed successfully in %v", time.Since(start))
+					}
+				} else {
+					w.loggerWrapper.GetLogger("system").LogInfo("Freelist has %d pages. Skipping VACUUM.", freelistCount)
+				}
+
+				_, _ = w.mainSQLDB.Exec(`PRAGMA optimize`)
+				w.loggerWrapper.GetLogger("system").LogInfo("Daily database maintenance completed in %v", time.Since(start))
+			}
+		}()
+	})
 }
 
 func (w *whatsmeowService) getWhatsAppWebVersion() (*clientVersion, error) {
@@ -2284,6 +2353,8 @@ func (w *whatsmeowService) ConnectOnStartup(clientName string) {
 		w.loggerWrapper.GetLogger(clientName).LogError("[%s] Failed to pre-initialize shared container: %v", clientName, err)
 	}
 	_, _ = w.getWhatsAppWebVersion()
+
+	w.startDatabaseMaintenance()
 
 	var instances []*instance_model.Instance
 	var err error
