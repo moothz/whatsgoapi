@@ -2040,6 +2040,10 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			postMap["event"] = "Message"
 
 			postMap["data"] = evt
+		} else if evt.UnavailableType == "sender_drop" && evt.Info.IsGroup {
+			doWebhook = true
+			postMap["event"] = "UndecryptableMessage"
+			postMap["data"] = evt
 		} else if strings.HasPrefix(evt.Info.ID, "66") || strings.HasPrefix(evt.Info.ID, "67") {
 			mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] ID 66 or 67 found, reconnecting client", mycli.userID)
 			mycli.WAClient.Disconnect()
@@ -2146,7 +2150,7 @@ func (w *whatsmeowService) CallWebhook(instance *instance_model.Instance, queueN
 	//w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] [subs] %v | event: %s", instance.Id, subscriptions, eventType)
 
 	switch eventType {
-	case "Message":
+	case "Message", "UndecryptableMessage":
 		if contains(subscriptions, "MESSAGE") {
 			w.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] [event] %s", instance.Id, eventType)
 			w.sendToQueueOrWebhook(instance, queueName, jsonData)
