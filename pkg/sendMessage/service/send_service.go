@@ -1328,14 +1328,22 @@ func (s *sendService) sendPollVoteWithRetry(data *PollVoteStruct, instance *inst
 			continue
 		}
 
-		chatJID, err := types.ParseJID(data.Number)
+		chatNumber := data.Number
+		if !strings.Contains(chatNumber, "@") {
+			chatNumber = chatNumber + "@s.whatsapp.net"
+		}
+		chatJID, err := types.ParseJID(chatNumber)
 		if err != nil {
 			return nil, fmt.Errorf("invalid chat number: %w", err)
 		}
 
 		var senderJID types.JID
 		if data.PollSender != "" {
-			senderJID, err = types.ParseJID(data.PollSender)
+			senderNumber := data.PollSender
+			if !strings.Contains(senderNumber, "@") {
+				senderNumber = senderNumber + "@s.whatsapp.net"
+			}
+			senderJID, err = types.ParseJID(senderNumber)
 			if err != nil {
 				return nil, fmt.Errorf("invalid pollSender: %w", err)
 			}
