@@ -589,8 +589,11 @@ async function sendContact(number, fullName, phone) {
 }
 
 /** POST /send/poll — Envia enquete */
-async function sendPoll(number, question, options, maxAnswer = 1) {
-	dump("sendPoll", await apiPost("/send/poll", { number, question, options, maxAnswer, delay: 0 }));
+async function sendPoll(number, question, options, maxAnswer = 1, hideVoters = false, endTime = 0) {
+	dump(
+		"sendPoll",
+		await apiPost("/send/poll", { number, question, options, maxAnswer, hideVoters, endTime, delay: 0 })
+	);
 }
 
 /** POST /message/react — Envia reação a uma mensagem */

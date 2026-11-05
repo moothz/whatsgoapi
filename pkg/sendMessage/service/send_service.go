@@ -115,6 +115,8 @@ type PollStruct struct {
 	Question     string       `json:"question"`
 	MaxAnswer    int          `json:"maxAnswer"`
 	Options      []string     `json:"options"`
+	HideVoters   bool         `json:"hideVoters"`
+	EndTime      int64        `json:"endTime"`
 	Delay        int32        `json:"delay"`
 	MentionedJID string       `json:"mentionedJid"`
 	MentionAll   bool         `json:"mentionAll"`
@@ -1261,6 +1263,12 @@ func (s *sendService) sendPollWithRetry(data *PollStruct, instance *instance_mod
 		}
 
 		msg := client.BuildPollCreation(data.Question, data.Options, data.MaxAnswer)
+		if data.HideVoters && msg.PollCreationMessage != nil {
+			msg.PollCreationMessage.HideParticipantName = proto.Bool(true)
+		}
+		if data.EndTime > 0 && msg.PollCreationMessage != nil {
+			msg.PollCreationMessage.EndTime = proto.Int64(data.EndTime)
+		}
 
 		message, err := s.SendMessage(instance, msg, "PollCreationMessage", &SendDataStruct{
 			Id:           data.Id,
