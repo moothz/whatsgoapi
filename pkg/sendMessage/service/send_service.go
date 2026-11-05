@@ -40,6 +40,7 @@ type SendService interface {
 	SendMediaUrl(data *MediaStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
 	SendMediaFile(data *MediaStruct, fileData []byte, instance *instance_model.Instance) (*MessageSendStruct, error)
 	SendPoll(data *PollStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
+	SendPollVote(data *PollVoteStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
 	SendSticker(data *StickerStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
 	SendLocation(data *LocationStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
 	SendContact(data *ContactStruct, instance *instance_model.Instance) (*MessageSendStruct, error)
@@ -122,6 +123,16 @@ type PollStruct struct {
 	MentionAll   bool         `json:"mentionAll"`
 	FormatJid    *bool        `json:"formatJid,omitempty"`
 	Quoted       QuotedStruct `json:"quoted"`
+}
+
+type PollVoteStruct struct {
+	Number          string   `json:"number"`
+	PollId          string   `json:"pollId"`
+	PollSender      string   `json:"pollSender"`
+	SelectedOptions []string `json:"selectedOptions"`
+	FromMe          bool     `json:"fromMe"`
+	Delay           int32    `json:"delay"`
+	FormatJid       *bool    `json:"formatJid,omitempty"`
 }
 
 type StickerStruct struct {
@@ -1301,6 +1312,77 @@ func (s *sendService) sendPollWithRetry(data *PollStruct, instance *instance_mod
 	return nil, fmt.Errorf("failed to send poll after %d attempts", maxRetries)
 }
 
+func (s *sendService) SendPollVote(data *PollVoteStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
+	return s.sendPollVoteWithRetry(data, instance, 3)
+}
+
+func (s *sendService) sendPollVoteWithRetry(data *PollVoteStruct, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendPollVote attempt %d/%d for poll %s", instance.Id, attempt, maxRetries, data.PollId)
+
+		client, err := s.ensureClientConnectedWithRetry(instance.Id, 2)
+		if err != nil {
+			if attempt == maxRetries {
+				return nil, err
+			}
+			continue
+		}
+
+		chatJID, err := types.ParseJID(data.Number)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chat number: %w", err)
+		}
+
+		var senderJID types.JID
+		if data.PollSender != "" {
+			senderJID, err = types.ParseJID(data.PollSender)
+			if err != nil {
+				return nil, fmt.Errorf("invalid pollSender: %w", err)
+			}
+		} else if data.FromMe && client.Store.ID != nil {
+			senderJID = *client.Store.ID
+		} else {
+			senderJID = chatJID
+		}
+
+		isGroup := strings.Contains(data.Number, "@g.us")
+		pollInfo := &types.MessageInfo{
+			ID: types.MessageID(data.PollId),
+			MessageSource: types.MessageSource{
+				Chat:     chatJID,
+				Sender:   senderJID,
+				IsFromMe: data.FromMe,
+				IsGroup:  isGroup,
+			},
+		}
+
+		voteMsg, err := client.BuildPollVote(context.Background(), pollInfo, data.SelectedOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build poll vote: %w", err)
+		}
+
+		message, err := s.SendMessage(instance, voteMsg, "PollUpdateMessage", &SendDataStruct{
+			Number:    data.Number,
+			Delay:     data.Delay,
+			FormatJid: data.FormatJid,
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "client disconnected") || strings.Contains(err.Error(), "no active session") {
+				s.loggerWrapper.GetLogger(instance.Id).LogWarn("[%s] SendPollVote failed due to disconnection: %v", instance.Id, err)
+				if attempt < maxRetries {
+					time.Sleep(time.Duration(attempt) * time.Second)
+					continue
+				}
+			}
+			return nil, err
+		}
+
+		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendPollVote successful on attempt %d", instance.Id, attempt)
+		return message, nil
+	}
+	return nil, fmt.Errorf("failed to send poll vote after %d attempts", maxRetries)
+}
+
 func convertVideoToWebP(inputData []byte, transparentColor string) ([]byte, error) {
 	tmpInput, err := os.CreateTemp("", "sticker-input-*.mp4")
 	if err != nil {
@@ -2010,6 +2092,8 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
 				Participant:   proto.String(data.Quoted.Participant),
 				QuotedMessage: &waE2E.Message{Conversation: proto.String("")},
 			}
+		case "PollUpdateMessage":
+			// PollUpdateMessage não utiliza ContextInfo padrão
 		case "StickerMessage":
 			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
 				StanzaID:      proto.String(data.Quoted.MessageID),
@@ -2057,6 +2141,8 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
 			isMedia = true
 		case "PollCreationMessage":
 			msg.PollCreationMessage.ContextInfo = &waE2E.ContextInfo{}
+		case "PollUpdateMessage":
+			// PollUpdateMessage não utiliza ContextInfo padrão
 		case "StickerMessage":
 			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{}
 		case "LocationMessage":

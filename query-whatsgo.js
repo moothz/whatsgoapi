@@ -596,6 +596,14 @@ async function sendPoll(number, question, options, maxAnswer = 1, hideVoters = f
 	);
 }
 
+/** POST /send/poll/vote — Vota em uma enquete */
+async function sendPollVote(number, pollId, pollSender, selectedOptions, fromMe = false) {
+	dump(
+		"sendPollVote",
+		await apiPost("/send/poll/vote", { number, pollId, pollSender, selectedOptions, fromMe, delay: 0 })
+	);
+}
+
 /** POST /message/react — Envia reação a uma mensagem */
 async function sendReaction(number, messageId, reaction) {
 	dump(
