@@ -1,4 +1,4 @@
-From 8dd69f7ba98d8425fb08fabdbb2b5c32055d403e Mon Sep 17 00:00:00 2001
+From afc0e73523e89ea14faa54117e777772cdd22b21 Mon Sep 17 00:00:00 2001
 From: moothz <m.moothz@gmail.com>
 Date: Wed, 28 Oct 2026 21:53:09 -0300
 Subject: [PATCH 4/4] fix(client): abortar envios expirados na fila de lock e
@@ -12,7 +12,7 @@ Subject: [PATCH 4/4] fix(client): abortar envios expirados na fila de lock e
  2 files changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/keepalive.go b/keepalive.go
-index 8c50e7b..1b8950c 100644
+index 66efa1a..9f778b6 100644
 --- a/keepalive.go
 +++ b/keepalive.go
 @@ -24,7 +24,7 @@ var (
@@ -25,10 +25,10 @@ index 8c50e7b..1b8950c 100644
  
  func (cli *Client) keepAliveLoop(ctx, connCtx context.Context) {
 diff --git a/send.go b/send.go
-index f2ce0f8..66fb78b 100644
+index 9bfd84b..2947cd8 100644
 --- a/send.go
 +++ b/send.go
-@@ -389,6 +389,9 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
+@@ -391,6 +391,9 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
  	cli.messageSendLock.Lock()
  	resp.DebugTimings.Queue = time.Since(start)
  	defer cli.messageSendLock.Unlock()

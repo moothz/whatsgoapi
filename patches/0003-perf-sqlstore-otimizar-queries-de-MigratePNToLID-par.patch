@@ -1,4 +1,4 @@
-From 0e76727870007d7d34d9bc4c4714c4ced1ed09aa Mon Sep 17 00:00:00 2001
+From 234f20f8165b778bd2136d4ad980156a646b3218 Mon Sep 17 00:00:00 2001
 From: moothz <m.moothz@gmail.com>
 Date: Wed, 28 Oct 2026 21:53:07 -0300
 Subject: [PATCH 3/4] perf(sqlstore): otimizar queries de MigratePNToLID para
@@ -13,7 +13,7 @@ Subject: [PATCH 3/4] perf(sqlstore): otimizar queries de MigratePNToLID para
  1 file changed, 77 insertions(+), 32 deletions(-)
 
 diff --git a/store/sqlstore/store.go b/store/sqlstore/store.go
-index 206a4c6..2774198 100644
+index f61d8b9..c53fbd6 100644
 --- a/store/sqlstore/store.go
 +++ b/store/sqlstore/store.go
 @@ -41,6 +41,13 @@ var PostgresArrayWrapper func(any) interface {
@@ -154,7 +154,7 @@ index 206a4c6..2774198 100644
  	var sessionsUpdated, identityKeysUpdated, senderKeysUpdated int64
  	lidSignal := lid.SignalAddressUser()
  	err := s.db.DoTxn(ctx, nil, func(ctx context.Context) error {
-@@ -903,35 +931,52 @@ const (
+@@ -905,35 +933,52 @@ const (
  	`
  )
  
