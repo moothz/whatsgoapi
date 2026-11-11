@@ -33,6 +33,9 @@
  *   node query-whatsgo.js mybot groupRequestParticipants 120363000000000001@g.us
  *   node query-whatsgo.js mybot updateGroupParticipantsRequest 120363000000000001@g.us approve 5599999999999@s.whatsapp.net
  *   node query-whatsgo.js mybot groupMemberTag 120363000000000001@g.us "Bot Oficial"
+ *   node query-whatsgo.js mybot findInGroup 120363000000000001@g.us,120363000000000002@g.us "62*,63*"
+ *   node query-whatsgo.js mybot removeFromGroup 120363000000000001@g.us,120363000000000002@g.us 5511999999999,5511888888888
+ *   node query-whatsgo.js mybot removeFromGroup 120363000000000001@g.us,120363000000000002@g.us "62*,63*"
  *   node query-whatsgo.js mybot blockUser 5599999999999@s.whatsapp.net
  *   node query-whatsgo.js mybot unblockUser 5599999999999@s.whatsapp.net
  *   node query-whatsgo.js mybot instanceCreate 55596424307 3322
@@ -495,6 +498,243 @@ async function groupMemberTag(groupJid, tag, participant = null) {
 	dump("groupMemberTag", await apiPost("/group/membertag", body));
 }
 
+function parseGroupJids(groupArg) {
+	if (!groupArg) return [];
+	return String(groupArg)
+		.split(",")
+		.map((g) => g.trim())
+		.filter(Boolean)
+		.map((g) => (g.includes("@") ? g : `${g}@g.us`));
+}
+
+function parseParticipantNumber(p) {
+	const rawJid = typeof p === "string" ? p : (p.PhoneNumber || p.JID || p.LID || "");
+	const user = rawJid.split("@")[0].replace(/\D/g, "");
+	return { rawJid, user };
+}
+
+function matchesPattern(numberStr, pattern) {
+	const cleanPat = pattern.trim().replace(/\D/g, (m) => (m === "*" ? "*" : ""));
+	if (!cleanPat) return false;
+	if (cleanPat.includes("*")) {
+		const regexPattern = "^" + cleanPat.split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+		return new RegExp(regexPattern).test(numberStr);
+	}
+	return numberStr.startsWith(cleanPat);
+}
+
+/** POST /group/info — Busca participantes de um ou mais grupos (CSV) filtrando por padrão/wildcard (ex: 62*, 63*) */
+async function findInGroup(groupJidsArg, ...patternsArgs) {
+	const groupJids = parseGroupJids(groupJidsArg);
+	if (groupJids.length === 0) {
+		console.error("[ERRO] groupJid é obrigatório.");
+		return [];
+	}
+	const patterns = patternsArgs
+		.flat()
+		.flatMap((p) => String(p).split(","))
+		.map((p) => p.trim())
+		.filter(Boolean);
+
+	if (patterns.length === 0) {
+		console.error("[ERRO] Informe ao menos um padrão/wildcard para busca (ex: 62*, 63*).");
+		return [];
+	}
+
+	const allResults = [];
+
+	for (const targetGroup of groupJids) {
+		try {
+			const infoRes = await apiPost("/group/info", { groupJid: targetGroup });
+			const participants = infoRes.data?.Participants || [];
+			const groupName = infoRes.data?.GroupName?.Name || targetGroup;
+
+			const matched = [];
+			for (const p of participants) {
+				const { rawJid, user } = parseParticipantNumber(p);
+				if (!user) continue;
+
+				const isMatch = patterns.some((pat) => matchesPattern(user, pat));
+				if (isMatch) {
+					const jid = rawJid.includes("@") ? rawJid : `${user}@s.whatsapp.net`;
+					matched.push({
+						groupJid: targetGroup,
+						groupName,
+						jid,
+						number: user,
+						isAdmin: Boolean(p.IsAdmin || p.IsSuperAdmin)
+					});
+				}
+			}
+
+			if (!isJsonOutput) {
+				console.log(`\n[findInGroup] Grupo: ${groupName} (${targetGroup})`);
+				console.log(`[findInGroup] Padrões: ${patterns.join(", ")}`);
+				console.log(`[findInGroup] Total encontrados: ${matched.length}`);
+				if (matched.length > 0) {
+					console.log("─".repeat(50));
+					matched.forEach((m, idx) => {
+						console.log(`${idx + 1}. ${m.number} (${m.jid})${m.isAdmin ? " [ADMIN]" : ""}`);
+					});
+					console.log("─".repeat(50));
+					console.log(`Lista CSV deste grupo:\n${matched.map((m) => m.number).join(",")}`);
+				}
+			}
+
+			allResults.push(...matched);
+		} catch (err) {
+			console.error(`[ERRO] Falha ao obter dados do grupo ${targetGroup}:`, err.response?.data?.message || err.message);
+		}
+	}
+
+	if (isJsonOutput) {
+		dump("findInGroup", allResults);
+	} else if (groupJids.length > 1) {
+		console.log(`\n${"=".repeat(50)}`);
+		console.log(`[findInGroup Resumo Geral] Grupos consultados: ${groupJids.length} | Total geral encontrado: ${allResults.length}`);
+		if (allResults.length > 0) {
+			const uniqueNumbers = Array.from(new Set(allResults.map((m) => m.number)));
+			console.log(`Lista CSV consolidada única (${uniqueNumbers.length} números):\n${uniqueNumbers.join(",")}`);
+		}
+		console.log(`${"=".repeat(50)}\n`);
+	}
+
+	return allResults;
+}
+
+/** POST /group/participant — Remove participantes (CSV, lista ou wildcard com confirmação) de um ou mais grupos (CSV) */
+async function removeFromGroup(groupJidsArg, ...participantsArgs) {
+	const groupJids = parseGroupJids(groupJidsArg);
+	if (groupJids.length === 0) {
+		console.error("[ERRO] groupJid é obrigatório.");
+		return;
+	}
+	const rawItems = participantsArgs
+		.flat()
+		.flatMap((p) => String(p).split(","))
+		.map((p) => p.trim())
+		.filter(Boolean);
+
+	if (rawItems.length === 0) {
+		console.error("[ERRO] Informe os usuários ou wildcards para remover (ex: 123456,7890 ou 62*,63*).");
+		return;
+	}
+
+	const hasWildcard = rawItems.some((item) => item.includes("*"));
+
+	if (hasWildcard) {
+		const groupTargets = [];
+
+		for (const targetGroup of groupJids) {
+			try {
+				if (!isJsonOutput) console.log(`[removeFromGroup] Consultando participantes de ${targetGroup}...`);
+				const infoRes = await apiPost("/group/info", { groupJid: targetGroup });
+				const currentParticipants = infoRes.data?.Participants || [];
+				const groupName = infoRes.data?.GroupName?.Name || targetGroup;
+
+				const matched = [];
+				for (const p of currentParticipants) {
+					const { rawJid, user } = parseParticipantNumber(p);
+					if (!user) continue;
+
+					const matches = rawItems.some((pattern) => {
+						if (pattern.includes("*")) {
+							return matchesPattern(user, pattern);
+						}
+						const clean = pattern.replace(/\D/g, "");
+						return clean && (user === clean || user.endsWith(clean));
+					});
+
+					if (matches) {
+						if (p.IsAdmin || p.IsSuperAdmin) {
+							if (!isJsonOutput) console.warn(`[AVISO] [${groupName}] Ignorando ${user} pois é Administrador do grupo.`);
+							continue;
+						}
+						matched.push(rawJid.includes("@") ? rawJid : `${user}@s.whatsapp.net`);
+					}
+				}
+
+				const uniqueMatched = Array.from(new Set(matched));
+				if (uniqueMatched.length > 0) {
+					groupTargets.push({
+						groupJid: targetGroup,
+						groupName,
+						participants: uniqueMatched
+					});
+				} else {
+					if (!isJsonOutput) console.log(`[removeFromGroup] Nenhum participante encontrado em ${groupName}.`);
+				}
+			} catch (err) {
+				console.error(`[ERRO] Falha ao consultar grupo ${targetGroup}:`, err.response?.data?.message || err.message);
+			}
+		}
+
+		if (groupTargets.length === 0) {
+			if (!isJsonOutput) console.log("[removeFromGroup] Nenhum participante para remover nos grupos informados.");
+			else dump("removeFromGroup", { removed: 0, groups: [] });
+			return;
+		}
+
+		if (!isJsonOutput) {
+			console.log(`\n${"=".repeat(50)}`);
+			console.log(`[removeFromGroup] PARTICIPANTES SELECIONADOS PARA REMOÇÃO:`);
+			for (const gt of groupTargets) {
+				console.log(`\nGrupo: ${gt.groupName} (${gt.groupJid}) - ${gt.participants.length} participante(s):`);
+				gt.participants.forEach((jid, i) => console.log(`   ${i + 1}. ${jid}`));
+			}
+			console.log("─".repeat(50));
+
+			const readline = require("readline");
+			const rl = readline.createInterface({
+				input: process.stdin,
+				output: process.stdout
+			});
+
+			const confirmed = await new Promise((resolve) => {
+				rl.question("Confirmar remoção de todos os listados acima nos respectivos grupos? (s/N): ", (ans) => {
+					rl.close();
+					resolve(ans.trim().toLowerCase() === "s" || ans.trim().toLowerCase() === "sim" || ans.trim().toLowerCase() === "y");
+				});
+			});
+
+			if (!confirmed) {
+				console.log("[removeFromGroup] Operação cancelada pelo usuário.");
+				return;
+			}
+		}
+
+		for (const gt of groupTargets) {
+			try {
+				const res = await apiPost("/group/participant", {
+					groupJid: gt.groupJid,
+					action: "remove",
+					participants: gt.participants
+				});
+				dump(`removeFromGroup (${gt.groupName || gt.groupJid})`, res);
+			} catch (err) {
+				console.error(`[ERRO] Falha ao remover de ${gt.groupJid}:`, err.response?.data?.message || err.message);
+			}
+		}
+	} else {
+		const participants = rawItems.map((p) => (p.includes("@") ? p : `${p}@s.whatsapp.net`));
+
+		for (const targetGroup of groupJids) {
+			try {
+				dump(
+					`removeFromGroup (${targetGroup})`,
+					await apiPost("/group/participant", {
+						groupJid: targetGroup,
+						action: "remove",
+						participants
+					})
+				);
+			} catch (err) {
+				console.error(`[ERRO] Falha ao remover de ${targetGroup}:`, err.response?.data?.message || err.message);
+			}
+		}
+	}
+}
+
 /** POST /user/info — Info de um usuário */
 async function userInfo(number) {
 	// number deve ter @s.whatsapp.net
@@ -671,6 +911,8 @@ const FUNCTIONS = {
 	updateGroupParticipantsRequest: ([groupJid, action, ...participants]) =>
 		updateGroupParticipantsRequest(groupJid, action, ...participants),
 	groupMemberTag: ([groupJid, tag, participant]) => groupMemberTag(groupJid, tag, participant),
+	findInGroup: ([groupJid, ...patterns]) => findInGroup(groupJid, ...patterns),
+	removeFromGroup: ([groupJid, ...participants]) => removeFromGroup(groupJid, ...participants),
 
 	userInfo: ([number]) => userInfo(number),
 	blockList: () => blockList(),
