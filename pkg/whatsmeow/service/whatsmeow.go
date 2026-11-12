@@ -64,6 +64,8 @@ type WhatsmeowService interface {
 	GetCachedGroupInfo(instanceId string, groupJID types.JID) (*types.GroupInfo, bool)
 	SetCachedGroupInfo(instanceId string, groupInfo *types.GroupInfo)
 	InvalidateGroupInfo(instanceId string, groupJID types.JID)
+	StoreViewOnceMedia(instanceId string, messageId string, data []byte, mimetype string, filename string)
+	GetViewOnceMedia(instanceId string, messageId string) (*ViewOnceCachedMedia, bool)
 }
 
 type clientVersion struct {
@@ -91,6 +93,7 @@ type whatsmeowService struct {
 	natsProducer       producer_interfaces.Producer
 	loggerWrapper      *logger_wrapper.LoggerManager
 	groupInfoCache     *cache.Cache
+	viewOnceCache      *ViewOnceCache
 	sharedContainer    *sqlstore.Container
 	mainSQLDB          *sql.DB
 	containerMu        sync.Mutex
@@ -511,7 +514,11 @@ func (w *whatsmeowService) StartClient(cd *ClientData) {
 
 	var version clientVersion
 
-	platformID, ok := waCompanionReg.DeviceProps_PlatformType_value[strings.ToUpper("chrome")]
+	platformName := "chrome"
+	if w.config != nil && strings.TrimSpace(w.config.WhatsappPlatformType) != "" {
+		platformName = strings.TrimSpace(w.config.WhatsappPlatformType)
+	}
+	platformID, ok := waCompanionReg.DeviceProps_PlatformType_value[strings.ToUpper(platformName)]
 	if ok {
 		store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_PlatformType(platformID).Enum()
 	}
@@ -1380,24 +1387,29 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			mycli.processedMessages.Set(messageKey, true, 30*time.Minute)
 		}
 
+		mediaRoot, hasViewOnceWrapper := unwrapViewOnceAndEphemeral(evt.Message)
+
 		var quotedMessage *waE2E.Message
 		var stanzaID string
 
-		if evt.Message.GetExtendedTextMessage() != nil {
-			quotedMessage = evt.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
-			stanzaID = evt.Message.GetExtendedTextMessage().GetContextInfo().GetStanzaID()
-		} else if evt.Message.GetImageMessage() != nil {
-			quotedMessage = evt.Message.GetImageMessage().GetContextInfo().GetQuotedMessage()
-			stanzaID = evt.Message.GetImageMessage().GetContextInfo().GetStanzaID()
-		} else if evt.Message.GetAudioMessage() != nil {
-			quotedMessage = evt.Message.GetAudioMessage().GetContextInfo().GetQuotedMessage()
-			stanzaID = evt.Message.GetAudioMessage().GetContextInfo().GetStanzaID()
-		} else if evt.Message.GetDocumentMessage() != nil {
-			quotedMessage = evt.Message.GetDocumentMessage().GetContextInfo().GetQuotedMessage()
-			stanzaID = evt.Message.GetDocumentMessage().GetContextInfo().GetStanzaID()
-		} else if evt.Message.GetVideoMessage() != nil {
-			quotedMessage = evt.Message.GetVideoMessage().GetContextInfo().GetQuotedMessage()
-			stanzaID = evt.Message.GetVideoMessage().GetContextInfo().GetStanzaID()
+		if mediaRoot.GetExtendedTextMessage() != nil {
+			quotedMessage = mediaRoot.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetExtendedTextMessage().GetContextInfo().GetStanzaID()
+		} else if mediaRoot.GetImageMessage() != nil {
+			quotedMessage = mediaRoot.GetImageMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetImageMessage().GetContextInfo().GetStanzaID()
+		} else if mediaRoot.GetAudioMessage() != nil {
+			quotedMessage = mediaRoot.GetAudioMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetAudioMessage().GetContextInfo().GetStanzaID()
+		} else if mediaRoot.GetDocumentMessage() != nil {
+			quotedMessage = mediaRoot.GetDocumentMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetDocumentMessage().GetContextInfo().GetStanzaID()
+		} else if mediaRoot.GetVideoMessage() != nil {
+			quotedMessage = mediaRoot.GetVideoMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetVideoMessage().GetContextInfo().GetStanzaID()
+		} else if mediaRoot.GetStickerMessage() != nil {
+			quotedMessage = mediaRoot.GetStickerMessage().GetContextInfo().GetQuotedMessage()
+			stanzaID = mediaRoot.GetStickerMessage().GetContextInfo().GetStanzaID()
 		}
 
 		if stanzaID != "" && quotedMessage != nil {
@@ -1420,41 +1432,58 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			}
 		}
 
-		if mycli.config.WebhookFiles {
-			isMedia := false
+		img := mediaRoot.GetImageMessage()
+		audio := mediaRoot.GetAudioMessage()
+		document := mediaRoot.GetDocumentMessage()
+		video := mediaRoot.GetVideoMessage()
+		sticker := mediaRoot.GetStickerMessage()
 
-			img := evt.Message.GetImageMessage()
-			audio := evt.Message.GetAudioMessage()
-			document := evt.Message.GetDocumentMessage()
-			video := evt.Message.GetVideoMessage()
-			sticker := evt.Message.GetStickerMessage()
+		// Check for associated child messages (like media in replies)
+		var associatedImg *waE2E.ImageMessage
+		var associatedAudio *waE2E.AudioMessage
+		var associatedDocument *waE2E.DocumentMessage
+		var associatedVideo *waE2E.VideoMessage
+		var associatedSticker *waE2E.StickerMessage
 
-			// Check for associated child messages (like media in replies)
-			var associatedImg *waE2E.ImageMessage
-			var associatedAudio *waE2E.AudioMessage
-			var associatedDocument *waE2E.DocumentMessage
-			var associatedVideo *waE2E.VideoMessage
-			var associatedSticker *waE2E.StickerMessage
-
-			if evt.Message.GetAssociatedChildMessage() != nil {
-				childMsg := evt.Message.GetAssociatedChildMessage().GetMessage()
-				if childMsg != nil {
-					associatedImg = childMsg.GetImageMessage()
-					associatedAudio = childMsg.GetAudioMessage()
-					associatedDocument = childMsg.GetDocumentMessage()
-					associatedVideo = childMsg.GetVideoMessage()
-					associatedSticker = childMsg.GetStickerMessage()
-				}
+		if mediaRoot.GetAssociatedChildMessage() != nil {
+			childMsg, childViewOnce := unwrapViewOnceAndEphemeral(mediaRoot.GetAssociatedChildMessage().GetMessage())
+			if childViewOnce {
+				hasViewOnceWrapper = true
 			}
+			if childMsg != nil {
+				associatedImg = childMsg.GetImageMessage()
+				associatedAudio = childMsg.GetAudioMessage()
+				associatedDocument = childMsg.GetDocumentMessage()
+				associatedVideo = childMsg.GetVideoMessage()
+				associatedSticker = childMsg.GetStickerMessage()
+			}
+		}
 
-			if img != nil || audio != nil || document != nil || video != nil || sticker != nil ||
+		hasViewOnceField := (img != nil && img.GetViewOnce()) ||
+			(video != nil && video.GetViewOnce()) ||
+			(audio != nil && audio.GetViewOnce()) ||
+			(associatedImg != nil && associatedImg.GetViewOnce()) ||
+			(associatedVideo != nil && associatedVideo.GetViewOnce()) ||
+			(associatedAudio != nil && associatedAudio.GetViewOnce())
+
+		isViewOnce := evt.IsViewOnce || evt.IsViewOnceV2 || evt.IsViewOnceV2Extension || hasViewOnceWrapper || hasViewOnceField
+		dataMap["isViewOnce"] = isViewOnce
+		if evt.IsViewOnceV2 {
+			dataMap["isViewOnceV2"] = true
+		}
+		if evt.IsViewOnceV2Extension {
+			dataMap["isViewOnceV2Extension"] = true
+		}
+
+		shouldDownloadMedia := mycli.config.WebhookFiles || (mycli.config.DownloadViewOnce && isViewOnce)
+
+		if shouldDownloadMedia {
+			isMedia := img != nil || audio != nil || document != nil || video != nil || sticker != nil ||
 				associatedImg != nil || associatedAudio != nil || associatedDocument != nil ||
-				associatedVideo != nil || associatedSticker != nil {
-				isMedia = true
-			}
+				associatedVideo != nil || associatedSticker != nil
 
 			if isMedia {
-				mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing media message - ID: %s", mycli.userID, evt.Info.ID)
+				mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing media message - ID: %s (viewOnce=%v)", mycli.userID, evt.Info.ID, isViewOnce)
 
 				var data []byte
 				var err error
@@ -1472,23 +1501,35 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 				if img != nil {
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Downloading image - ID: %s", mycli.userID, evt.Info.ID)
 					data, err = mycli.WAClient.Download(downloadCtx, img)
-					extension = ".jpg"
-					mimeType = "image/jpeg"
+					mimeType = img.GetMimetype()
+					if mimeType == "" {
+						mimeType = "image/jpeg"
+					}
+					extension = getExtensionFromMimeType(strings.Split(mimeType, ";")[0])
+					if extension == "" {
+						extension = ".jpg"
+					}
 					if img.FileLength != nil {
 						mediaSize = int64(*img.FileLength)
 					}
 				} else if audio != nil {
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Downloading audio - ID: %s", mycli.userID, evt.Info.ID)
 					data, err = mycli.WAClient.Download(downloadCtx, audio)
-					extension = ".ogg"
-					mimeType = "audio/ogg"
+					mimeType = audio.GetMimetype()
+					if mimeType == "" {
+						mimeType = "audio/ogg"
+					}
+					extension = getExtensionFromMimeType(strings.Split(mimeType, ";")[0])
+					if extension == "" {
+						extension = ".ogg"
+					}
 					if audio.FileLength != nil {
 						mediaSize = int64(*audio.FileLength)
 					}
 				} else if document != nil {
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Downloading document - ID: %s, FileName: %s, Size: %d bytes", mycli.userID, evt.Info.ID, document.GetFileName(), document.GetFileLength())
 					data, err = mycli.WAClient.Download(downloadCtx, document)
-					extension = getExtensionFromMimeType(document.GetMimetype())
+					extension = getExtensionFromMimeType(strings.Split(document.GetMimetype(), ";")[0])
 					mimeType = document.GetMimetype()
 					if document.FileLength != nil {
 						mediaSize = int64(*document.FileLength)
@@ -1496,8 +1537,14 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 				} else if video != nil {
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Downloading video - ID: %s, Size: %d bytes", mycli.userID, evt.Info.ID, video.GetFileLength())
 					data, err = mycli.WAClient.Download(downloadCtx, video)
-					extension = ".mp4"
-					mimeType = "video/mp4"
+					mimeType = video.GetMimetype()
+					if mimeType == "" {
+						mimeType = "video/mp4"
+					}
+					extension = getExtensionFromMimeType(strings.Split(mimeType, ";")[0])
+					if extension == "" {
+						extension = ".mp4"
+					}
 					if video.FileLength != nil {
 						mediaSize = int64(*video.FileLength)
 					}
@@ -1531,27 +1578,36 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					}
 					// Handle associated child media messages
 				} else if associatedImg != nil {
-					data, err = mycli.WAClient.Download(context.Background(), associatedImg)
+					data, err = mycli.WAClient.Download(downloadCtx, associatedImg)
+					mimeType = associatedImg.GetMimetype()
+					if mimeType == "" {
+						mimeType = "image/jpeg"
+					}
 					extension = ".jpg"
-					mimeType = "image/jpeg"
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing associated child image message", mycli.userID)
 				} else if associatedAudio != nil {
-					data, err = mycli.WAClient.Download(context.Background(), associatedAudio)
+					data, err = mycli.WAClient.Download(downloadCtx, associatedAudio)
+					mimeType = associatedAudio.GetMimetype()
+					if mimeType == "" {
+						mimeType = "audio/ogg"
+					}
 					extension = ".ogg"
-					mimeType = "audio/ogg"
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing associated child audio message", mycli.userID)
 				} else if associatedDocument != nil {
-					data, err = mycli.WAClient.Download(context.Background(), associatedDocument)
-					extension = getExtensionFromMimeType(associatedDocument.GetMimetype())
+					data, err = mycli.WAClient.Download(downloadCtx, associatedDocument)
+					extension = getExtensionFromMimeType(strings.Split(associatedDocument.GetMimetype(), ";")[0])
 					mimeType = associatedDocument.GetMimetype()
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing associated child document message", mycli.userID)
 				} else if associatedVideo != nil {
-					data, err = mycli.WAClient.Download(context.Background(), associatedVideo)
+					data, err = mycli.WAClient.Download(downloadCtx, associatedVideo)
+					mimeType = associatedVideo.GetMimetype()
+					if mimeType == "" {
+						mimeType = "video/mp4"
+					}
 					extension = ".mp4"
-					mimeType = "video/mp4"
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing associated child video message", mycli.userID)
 				} else if associatedSticker != nil {
-					data, err = mycli.WAClient.Download(context.Background(), associatedSticker)
+					data, err = mycli.WAClient.Download(downloadCtx, associatedSticker)
 					extension = ".png"
 					mimeType = "image/png"
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Processing associated child sticker message", mycli.userID)
@@ -1604,47 +1660,62 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					}
 				}
 
-				messageMap, ok := dataMap["Message"].(map[string]interface{})
-				if !ok {
-					messageMap = make(map[string]interface{})
-				}
-
 				// Only process storage if download was successful
 				if err == nil && len(data) > 0 {
-					if mycli.config.MinioEnabled {
-						fileName := evt.Info.ID + extension
-						storageStart := time.Now()
-
-						mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Uploading to S3/Minio - ID: %s, FileName: %s, Size: %d bytes", mycli.userID, evt.Info.ID, fileName, len(data))
-
-						mediaURL, err := mycli.mediaStorage.Store(context.Background(), data, fileName, mimeType)
-						storageDuration := time.Since(storageStart)
-
-						if err != nil {
-							mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Failed to store media in S3/Minio - ID: %s, Size: %d bytes, Duration: %v, Error: %v", mycli.userID, evt.Info.ID, len(data), storageDuration, err)
-
-							// Continue processing without storage URL
-							mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Continuing message processing without S3 URL - ID: %s", mycli.userID, evt.Info.ID)
-						} else {
-							mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] S3/Minio upload successful - ID: %s, Size: %d bytes, Duration: %v, URL: %s", mycli.userID, evt.Info.ID, len(data), storageDuration, mediaURL)
-							messageMap["mediaUrl"] = mediaURL
-							messageMap["mimetype"] = mimeType
+					if isViewOnce {
+						if mycli.service != nil {
+							mycli.service.StoreViewOnceMedia(mycli.userID, evt.Info.ID, data, mimeType, evt.Info.ID+extension)
 						}
-					} else {
-						mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Encoding to base64 - ID: %s, Size: %d bytes", mycli.userID, evt.Info.ID, len(data))
-						encodeStart := time.Now()
+						if len(data) <= 10*1024*1024 {
+							dataMap["viewOnceMedia"] = map[string]interface{}{
+								"base64":   base64.StdEncoding.EncodeToString(data),
+								"mimetype": mimeType,
+								"filename": evt.Info.ID + extension,
+							}
+						}
+					}
 
-						encodeData := base64.StdEncoding.EncodeToString(data)
-						encodeDuration := time.Since(encodeStart)
+					if mycli.config.WebhookFiles {
+						messageMap, ok := dataMap["Message"].(map[string]interface{})
+						if !ok {
+							messageMap = make(map[string]interface{})
+						}
 
-						mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Base64 encoding completed - ID: %s, Original: %d bytes, Encoded: %d chars, Duration: %v", mycli.userID, evt.Info.ID, len(data), len(encodeData), encodeDuration)
-						messageMap["base64"] = encodeData
+						if mycli.config.MinioEnabled {
+							fileName := evt.Info.ID + extension
+							storageStart := time.Now()
+
+							mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Uploading to S3/Minio - ID: %s, FileName: %s, Size: %d bytes", mycli.userID, evt.Info.ID, fileName, len(data))
+
+							mediaURL, err := mycli.mediaStorage.Store(context.Background(), data, fileName, mimeType)
+							storageDuration := time.Since(storageStart)
+
+							if err != nil {
+								mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Failed to store media in S3/Minio - ID: %s, Size: %d bytes, Duration: %v, Error: %v", mycli.userID, evt.Info.ID, len(data), storageDuration, err)
+
+								// Continue processing without storage URL
+								mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Continuing message processing without S3 URL - ID: %s", mycli.userID, evt.Info.ID)
+							} else {
+								mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] S3/Minio upload successful - ID: %s, Size: %d bytes, Duration: %v, URL: %s", mycli.userID, evt.Info.ID, len(data), storageDuration, mediaURL)
+								messageMap["mediaUrl"] = mediaURL
+								messageMap["mimetype"] = mimeType
+							}
+						} else {
+							mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Encoding to base64 - ID: %s, Size: %d bytes", mycli.userID, evt.Info.ID, len(data))
+							encodeStart := time.Now()
+
+							encodeData := base64.StdEncoding.EncodeToString(data)
+							encodeDuration := time.Since(encodeStart)
+
+							mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Base64 encoding completed - ID: %s, Original: %d bytes, Encoded: %d chars, Duration: %v", mycli.userID, evt.Info.ID, len(data), len(encodeData), encodeDuration)
+							messageMap["base64"] = encodeData
+						}
+
+						dataMap["Message"] = messageMap
 					}
 				} else {
 					mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Skipping media storage due to download failure - ID: %s", mycli.userID, evt.Info.ID)
 				}
-
-				dataMap["Message"] = messageMap
 			}
 		}
 
@@ -2039,7 +2110,14 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			doWebhook = true
 			postMap["event"] = "Message"
 
-			postMap["data"] = evt
+			postMap["data"] = map[string]interface{}{
+				"Info":                  evt.Info,
+				"IsUnavailable":         evt.IsUnavailable,
+				"UnavailableType":       evt.UnavailableType,
+				"DecryptFailMode":       evt.DecryptFailMode,
+				"isViewOnce":            true,
+				"isViewOnceUnavailable": true,
+			}
 		} else if evt.UnavailableType == "sender_drop" && evt.Info.IsGroup {
 			doWebhook = true
 			postMap["event"] = "UndecryptableMessage"
@@ -2667,6 +2745,7 @@ func NewWhatsmeowService(
 		natsProducer:       natsProducer,
 		loggerWrapper:      loggerWrapper,
 		groupInfoCache:     groupInfoCache,
+		viewOnceCache:      NewViewOnceCache(defaultViewOnceCacheTTL, defaultViewOnceCacheMaxEntries, defaultViewOnceMaxItemBytes),
 	}
 }
 
@@ -2718,5 +2797,43 @@ func (w *whatsmeowService) InvalidateGroupInfo(instanceId string, groupJID types
 	}
 	cacheKey := fmt.Sprintf("%s:%s", instanceId, groupJID.String())
 	w.groupInfoCache.Delete(cacheKey)
+}
+
+func (w *whatsmeowService) StoreViewOnceMedia(instanceId string, messageId string, data []byte, mimetype string, filename string) {
+	if w == nil || w.viewOnceCache == nil {
+		return
+	}
+	w.viewOnceCache.Set(instanceId, messageId, data, mimetype, filename)
+}
+
+func (w *whatsmeowService) GetViewOnceMedia(instanceId string, messageId string) (*ViewOnceCachedMedia, bool) {
+	if w == nil || w.viewOnceCache == nil {
+		return nil, false
+	}
+	return w.viewOnceCache.Get(instanceId, messageId)
+}
+
+func unwrapViewOnceAndEphemeral(msg *waE2E.Message) (*waE2E.Message, bool) {
+	curr := msg
+	isViewOnce := false
+	for i := 0; i < 10 && curr != nil; i++ {
+		if inner := curr.GetViewOnceMessage().GetMessage(); inner != nil {
+			isViewOnce = true
+			curr = inner
+		} else if inner := curr.GetViewOnceMessageV2().GetMessage(); inner != nil {
+			isViewOnce = true
+			curr = inner
+		} else if inner := curr.GetViewOnceMessageV2Extension().GetMessage(); inner != nil {
+			isViewOnce = true
+			curr = inner
+		} else if inner := curr.GetEphemeralMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetDocumentWithCaptionMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else {
+			break
+		}
+	}
+	return curr, isViewOnce
 }
 

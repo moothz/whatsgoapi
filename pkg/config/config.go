@@ -67,6 +67,8 @@ type Config struct {
 	LogSummaryIntervalSec    int
 	FetchGroupInfoOnMessage  bool
 	GroupInfoCacheTTLMin     int
+	DownloadViewOnce         bool
+	WhatsappPlatformType     string
 }
 
 func (c *Config) CreateUsersDB() (*gorm.DB, error) {
@@ -264,6 +266,14 @@ func Load() *Config {
 		groupInfoCacheTTLMin = 30 // Default 30 minutes
 	}
 
+	downloadViewOnceEnv := os.Getenv(config_env.DOWNLOAD_VIEW_ONCE)
+	downloadViewOnce := downloadViewOnceEnv != "false" // Default true to capture view-once media before expiry
+
+	whatsappPlatformType := strings.TrimSpace(os.Getenv(config_env.WHATSAPP_PLATFORM_TYPE))
+	if whatsappPlatformType == "" {
+		whatsappPlatformType = "chrome"
+	}
+
 	config := &Config{
 		PostgresAuthDB:          postgresAuthDB,
 		postgresUsersDB:         postgresUsersDB,
@@ -307,6 +317,8 @@ func Load() *Config {
 		LogSummaryIntervalSec:   logSummaryIntervalSec,
 		FetchGroupInfoOnMessage: fetchGroupInfoOnMessage,
 		GroupInfoCacheTTLMin:    groupInfoCacheTTLMin,
+		DownloadViewOnce:        downloadViewOnce,
+		WhatsappPlatformType:    whatsappPlatformType,
 	}
 
 	minioEnabled := os.Getenv(config_env.S3_ENABLED) == "true" || os.Getenv(config_env.MINIO_ENABLED) == "true"

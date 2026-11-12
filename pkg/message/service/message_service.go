@@ -61,7 +61,9 @@ type MarkReadStruct struct {
 }
 
 type DownloadMediaStruct struct {
-	Message *waE2E.Message `json:"message"`
+	Message   *waE2E.Message `json:"message"`
+	Id        string         `json:"id,omitempty"`
+	MessageID string         `json:"messageId,omitempty"`
 }
 
 type MessageStatusStruct struct {
@@ -269,6 +271,50 @@ func (m *messageService) MarkRead(data *MarkReadStruct, instance *instance_model
 	return ts.String(), nil
 }
 
+func unwrapMediaMessage(msg *waE2E.Message) *waE2E.Message {
+	curr := msg
+	for i := 0; i < 10 && curr != nil; i++ {
+		if inner := curr.GetViewOnceMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetViewOnceMessageV2().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetViewOnceMessageV2Extension().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetEphemeralMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetDocumentWithCaptionMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetAssociatedChildMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else {
+			break
+		}
+	}
+	return curr
+}
+
+func resolveDownloadTarget(msg *waE2E.Message) (string, whatsmeow.DownloadableMessage, string) {
+	if msg == nil {
+		return "", nil, ""
+	}
+	if img := msg.GetImageMessage(); img != nil {
+		return "image", img, img.GetMimetype()
+	}
+	if audio := msg.GetAudioMessage(); audio != nil {
+		return "audio", audio, audio.GetMimetype()
+	}
+	if document := msg.GetDocumentMessage(); document != nil {
+		return "document", document, document.GetMimetype()
+	}
+	if video := msg.GetVideoMessage(); video != nil {
+		return "video", video, video.GetMimetype()
+	}
+	if sticker := msg.GetStickerMessage(); sticker != nil {
+		return "sticker", sticker, sticker.GetMimetype()
+	}
+	return "", nil, ""
+}
+
 func (m *messageService) DownloadMedia(data *DownloadMediaStruct, instance *instance_model.Instance, request *http.Request) (*dataurl.DataURL, string, error) {
 	client, err := m.ensureClientConnected(instance.Id)
 	if err != nil {
@@ -277,18 +323,20 @@ func (m *messageService) DownloadMedia(data *DownloadMediaStruct, instance *inst
 
 	var ts time.Time
 
-	msg := data.Message
+	msgID := strings.TrimSpace(data.MessageID)
+	if msgID == "" {
+		msgID = strings.TrimSpace(data.Id)
+	}
 
-	mimetype := ""
-	var mediaData []byte
+	if msgID != "" && m.whatsmeowService != nil {
+		if cached, ok := m.whatsmeowService.GetViewOnceMedia(instance.Id, msgID); ok && len(cached.Data) > 0 {
+			return dataurl.New(cached.Data, cached.Mimetype), ts.String(), nil
+		}
+	}
 
-	img := msg.GetImageMessage()
-	audio := msg.GetAudioMessage()
-	document := msg.GetDocumentMessage()
-	video := msg.GetVideoMessage()
-	sticker := msg.GetStickerMessage()
-
-	if img == nil && audio == nil && document == nil && video == nil && sticker == nil {
+	msg := unwrapMediaMessage(data.Message)
+	mediaKind, downloadable, mimetype := resolveDownloadTarget(msg)
+	if downloadable == nil {
 		return nil, "", errors.New("invalid media type")
 	}
 
@@ -302,54 +350,15 @@ func (m *messageService) DownloadMedia(data *DownloadMediaStruct, instance *inst
 		}
 	}
 
-	if img != nil {
-		mediaData, err = client.Download(context.Background(), img)
-		if err != nil {
-			m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download image", instance.Id)
-			msg := fmt.Sprintf("Failed to download image %v", err)
-			return nil, "", errors.New(msg)
+	mediaData, err := client.Download(context.Background(), downloadable)
+	if err != nil {
+		if msgID != "" && m.whatsmeowService != nil {
+			if cached, ok := m.whatsmeowService.GetViewOnceMedia(instance.Id, msgID); ok && len(cached.Data) > 0 {
+				return dataurl.New(cached.Data, cached.Mimetype), ts.String(), nil
+			}
 		}
-		mimetype = img.GetMimetype()
-	}
-
-	if audio != nil {
-		mediaData, err = client.Download(context.Background(), audio)
-		if err != nil {
-			m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download audio", instance.Id)
-			msg := fmt.Sprintf("Failed to download audio %v", err)
-			return nil, "", errors.New(msg)
-		}
-		mimetype = audio.GetMimetype()
-	}
-
-	if document != nil {
-		mediaData, err = client.Download(context.Background(), document)
-		if err != nil {
-			m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download document", instance.Id)
-			msg := fmt.Sprintf("Failed to download document %v", err)
-			return nil, "", errors.New(msg)
-		}
-		mimetype = document.GetMimetype()
-	}
-
-	if video != nil {
-		mediaData, err = client.Download(context.Background(), video)
-		if err != nil {
-			m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download video", instance.Id)
-			msg := fmt.Sprintf("Failed to download video %v", err)
-			return nil, "", errors.New(msg)
-		}
-		mimetype = video.GetMimetype()
-	}
-
-	if sticker != nil {
-		mediaData, err = client.Download(context.Background(), sticker)
-		if err != nil {
-			m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download sticker", instance.Id)
-			msg := fmt.Sprintf("Failed to download sticker %v", err)
-			return nil, "", errors.New(msg)
-		}
-		mimetype = sticker.GetMimetype()
+		m.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to download %s", instance.Id, mediaKind)
+		return nil, "", fmt.Errorf("Failed to download %s %v", mediaKind, err)
 	}
 
 	dataURL := dataurl.New(mediaData, mimetype)
