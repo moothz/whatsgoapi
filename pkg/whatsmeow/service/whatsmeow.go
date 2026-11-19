@@ -307,7 +307,11 @@ func (w *whatsmeowService) getWhatsAppWebVersion() (*clientVersion, error) {
 		return &verCopy, nil
 	}
 
-	ver, err := fetchWhatsAppWebVersion()
+	ua := ""
+	if w.config != nil && strings.TrimSpace(w.config.UserAgent) != "" {
+		ua = strings.TrimSpace(w.config.UserAgent)
+	}
+	ver, err := fetchWhatsAppWebVersion(ua)
 	if err != nil {
 		if w.cachedWAVersion != nil {
 			verCopy := *w.cachedWAVersion
@@ -522,12 +526,30 @@ func (w *whatsmeowService) StartClient(cd *ClientData) {
 	if ok {
 		store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_PlatformType(platformID).Enum()
 	}
-	if cd.Instance.OsName == "" {
-		cd.Instance.OsName = utils.WhatsAppGetUserOS()
+
+	configuredOs := "Windows"
+	if w.config != nil && strings.TrimSpace(w.config.OsName) != "" {
+		configuredOs = strings.TrimSpace(w.config.OsName)
+	}
+
+	if cd.Instance.OsName == "" || strings.Contains(strings.ToLower(cd.Instance.OsName), "ravena") {
+		cd.Instance.OsName = configuredOs
+		_ = w.instanceRepository.Update(cd.Instance)
 	}
 
 	store.DeviceProps.Os = &cd.Instance.OsName
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
+
+	if strings.EqualFold(cd.Instance.OsName, "linux") {
+		store.BaseClientPayload.UserAgent.OsVersion = proto.String("6.5.0")
+		store.BaseClientPayload.UserAgent.OsBuildNumber = proto.String("6.5.0")
+	} else if strings.EqualFold(cd.Instance.OsName, "macos") || strings.EqualFold(cd.Instance.OsName, "mac os") {
+		store.BaseClientPayload.UserAgent.OsVersion = proto.String("14.0.0")
+		store.BaseClientPayload.UserAgent.OsBuildNumber = proto.String("14.0.0")
+	} else {
+		store.BaseClientPayload.UserAgent.OsVersion = proto.String("10.0.0")
+		store.BaseClientPayload.UserAgent.OsBuildNumber = proto.String("10.0.0")
+	}
 
 	if w.config.WhatsappVersionMajor != 0 && w.config.WhatsappVersionMinor != 0 && w.config.WhatsappVersionPatch != 0 {
 		w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Setting whatsapp version to %d.%d.%d", cd.Instance.Id, w.config.WhatsappVersionMajor, w.config.WhatsappVersionMinor, w.config.WhatsappVersionPatch)
@@ -557,6 +579,10 @@ func (w *whatsmeowService) StartClient(cd *ClientData) {
 		}
 	}
 
+	if version.Major != 0 {
+		store.SetWAVersion(store.WAVersionContainer{uint32(version.Major), uint32(version.Minor), uint32(version.Patch)})
+	}
+
 	clientLog := waLog.Stdout("Client", w.config.WaDebug, true)
 	var client *whatsmeow.Client
 	if w.config.WaDebug != "" {
@@ -564,6 +590,12 @@ func (w *whatsmeowService) StartClient(cd *ClientData) {
 	} else {
 		client = whatsmeow.NewClient(deviceStore, nil)
 	}
+
+	resolvedUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+	if w.config != nil && strings.TrimSpace(w.config.UserAgent) != "" {
+		resolvedUA = strings.TrimSpace(w.config.UserAgent)
+	}
+	client.UserAgent = resolvedUA
 
 	w.clientPointer[cd.Instance.Id] = client
 
@@ -2554,8 +2586,20 @@ func (w *whatsmeowService) SendToGlobalQueues(eventType string, payload []byte, 
 	}
 }
 
-func fetchWhatsAppWebVersion() (*clientVersion, error) {
-	resp, err := http.Get("https://web.whatsapp.com/sw.js")
+func fetchWhatsAppWebVersion(customUserAgent ...string) (*clientVersion, error) {
+	req, err := http.NewRequest("GET", "https://web.whatsapp.com/sw.js", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for WhatsApp Web version: %v", err)
+	}
+
+	ua := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+	if len(customUserAgent) > 0 && strings.TrimSpace(customUserAgent[0]) != "" {
+		ua = strings.TrimSpace(customUserAgent[0])
+	}
+	req.Header.Set("User-Agent", ua)
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch WhatsApp Web version: %v", err)
 	}

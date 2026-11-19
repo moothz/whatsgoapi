@@ -69,6 +69,7 @@ type Config struct {
 	GroupInfoCacheTTLMin     int
 	DownloadViewOnce         bool
 	WhatsappPlatformType     string
+	UserAgent                string
 }
 
 func (c *Config) CreateUsersDB() (*gorm.DB, error) {
@@ -274,6 +275,18 @@ func Load() *Config {
 		whatsappPlatformType = "chrome"
 	}
 
+	userAgent := strings.TrimSpace(os.Getenv(config_env.WHATSAPP_USER_AGENT))
+	if userAgent == "" {
+		userAgent = strings.TrimSpace(os.Getenv(config_env.USER_AGENT))
+	}
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+	}
+
+	if osName == "" {
+		osName = "Windows"
+	}
+
 	config := &Config{
 		PostgresAuthDB:          postgresAuthDB,
 		postgresUsersDB:         postgresUsersDB,
@@ -319,6 +332,7 @@ func Load() *Config {
 		GroupInfoCacheTTLMin:    groupInfoCacheTTLMin,
 		DownloadViewOnce:        downloadViewOnce,
 		WhatsappPlatformType:    whatsappPlatformType,
+		UserAgent:               userAgent,
 	}
 
 	minioEnabled := os.Getenv(config_env.S3_ENABLED) == "true" || os.Getenv(config_env.MINIO_ENABLED) == "true"

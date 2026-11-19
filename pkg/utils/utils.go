@@ -325,7 +325,7 @@ func WhatsAppGetUserOS() string {
 	case "darwin":
 		return "macOS"
 	default:
-		return "Linux"
+		return "Windows"
 	}
 }
 
