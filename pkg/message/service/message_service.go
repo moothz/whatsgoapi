@@ -286,6 +286,10 @@ func unwrapMediaMessage(msg *waE2E.Message) *waE2E.Message {
 			curr = inner
 		} else if inner := curr.GetAssociatedChildMessage().GetMessage(); inner != nil {
 			curr = inner
+		} else if inner := curr.GetLottieStickerMessage().GetMessage(); inner != nil {
+			curr = inner
+		} else if inner := curr.GetAudioStickerMessage().GetMessage(); inner != nil {
+			curr = inner
 		} else {
 			break
 		}

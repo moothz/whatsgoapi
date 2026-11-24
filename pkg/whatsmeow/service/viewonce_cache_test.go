@@ -78,4 +78,21 @@ func TestUnwrapViewOnceAndEphemeral(t *testing.T) {
 	if !isVOExt || unwrappedExt.GetAudioMessage() == nil {
 		t.Fatalf("expected ViewOnceMessageV2Extension unwrap to succeed")
 	}
+
+	audioSticker := &waE2E.Message{
+		AudioStickerMessage: &waE2E.FutureProofMessage{
+			Message: &waE2E.Message{
+				StickerMessage: &waE2E.StickerMessage{
+					Mimetype: proto.String("image/webp"),
+					Audio: &waE2E.StickerMessage_AudioMessage{
+						AudioMessage: &waE2E.AudioMessage{Mimetype: proto.String("audio/ogg; codecs=opus")},
+					},
+				},
+			},
+		},
+	}
+	unwrappedAudioSticker, isAudioStickerVO := unwrapViewOnceAndEphemeral(audioSticker)
+	if isAudioStickerVO || unwrappedAudioSticker.GetStickerMessage().GetAudioMessage() == nil {
+		t.Fatalf("expected AudioStickerMessage unwrap to preserve embedded AudioMessage")
+	}
 }

@@ -812,6 +812,14 @@ async function sendSticker(number, stickerUrl, packName, author) {
 	dump("sendSticker", await apiPost("/send/sticker", body));
 }
 
+/** POST /send/sticker/audio — Envia sticker com som por URL ou base64 */
+async function sendAudioSticker(number, stickerInput, audioInput, packName, author) {
+	const body = { number, sticker: stickerInput, audio: audioInput, delay: 0 };
+	if (packName) body.pack_name = packName;
+	if (author) body.author = author;
+	dump("sendAudioSticker", await apiPost("/send/sticker/audio", body));
+}
+
 /** POST /send/location — Envia localização */
 async function sendLocation(number, latitude, longitude, name = "", address = "") {
 	dump(
@@ -933,6 +941,8 @@ const FUNCTIONS = {
 	},
 	sendMedia: ([number, url, type, caption]) => sendMedia(number, url, type, caption),
 	sendSticker: ([number, url, packName, author]) => sendSticker(number, url, packName, author),
+	sendAudioSticker: ([number, stickerInput, audioInput, packName, author]) =>
+		sendAudioSticker(number, stickerInput, audioInput, packName, author),
 	sendLocation: ([number, lat, lon, name, addr]) =>
 		sendLocation(number, parseFloat(lat), parseFloat(lon), name, addr),
 	sendContact: ([number, fullName, phone]) => sendContact(number, fullName, phone),

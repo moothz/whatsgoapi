@@ -18,6 +18,7 @@ type SendHandler interface {
 	SendPoll(ctx *gin.Context)
 	SendPollVote(ctx *gin.Context)
 	SendSticker(ctx *gin.Context)
+	SendAudioSticker(ctx *gin.Context)
 	SendLocation(ctx *gin.Context)
 	SendContact(ctx *gin.Context)
 	SendButton(ctx *gin.Context)
@@ -386,6 +387,58 @@ func (s *sendHandler) SendSticker(ctx *gin.Context) {
 	}
 
 	message, err := s.sendMessageService.SendSticker(data, instance)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "success", "data": message})
+}
+
+// Send an audio sticker message
+// @Summary Send an audio sticker message
+// @Description Send a sticker message with embedded audio
+// @Tags Send Message
+// @Accept json
+// @Produce json
+// @Param message body send_service.AudioStickerStruct true "Message data"
+// @Success 200 {object} gin.H "success"
+// @Failure 400 {object} gin.H "Error on validation"
+// @Failure 500 {object} gin.H "Internal server error"
+// @Router /send/sticker/audio [post]
+// @Security ApiKeyAuth
+func (s *sendHandler) SendAudioSticker(ctx *gin.Context) {
+	getInstance := ctx.MustGet("instance")
+
+	instance, ok := getInstance.(*instance_model.Instance)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "instance not found"})
+		return
+	}
+
+	var data *send_service.AudioStickerStruct
+	err := ctx.ShouldBindBodyWithJSON(&data)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if data.Number == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "phone number is required"})
+		return
+	}
+
+	if data.Sticker == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "sticker is required"})
+		return
+	}
+
+	if data.Audio == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "audio is required"})
+		return
+	}
+
+	message, err := s.sendMessageService.SendAudioSticker(data, instance)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

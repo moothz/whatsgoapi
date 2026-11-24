@@ -11,6 +11,8 @@ Esta pasta contém os patches e a documentação técnica das modificações man
    - Adiciona a constante `mutationAcceptNewsletterAdminInvite = "6179636105471882"` e o método `AcceptNewsletterAdminInvite(ctx, jid)` em `newsletter.go` para aceitar convites de administração em canais/newsletters.
 2. **`0002-appstate-add-BuildClearChat-patch-builder.patch`**
    - Adiciona a função `BuildClearChat(target, lastMessageTimestamp, lastMessageKey, deleteMedia)` em `appstate/encode.go` (e teste unitário em `appstate/encode_test.go`) para sincronização de limpeza de conversas via AppState.
+3. **`0005-feat-message-add-AudioStickerMessage-support.patch`**
+   - Baseado no PR [`tulir/whatsmeow#1366`](https://github.com/tulir/whatsmeow/pull/1366): adiciona o tratamento de `AudioStickerMessage` (campo 134 de `waE2E.Message`) em `send.go` (`getTypeFromMessage` / `getMediaTypeFromMessage`), expõe `IsAudioSticker` e o unwrap em `types/events/events.go` (`UnwrapRaw`) e inclui testes unitários em `send_test.go` e `types/events/events_test.go`.
 
 ### 2. Otimizações de Performance e Resiliência (Específicas para Multi-Instância / Ravena)
 > **Nota:** Os patches `0003` e `0004` são voltados à operação de alta concorrência da Ravena (múltiplas instâncias compartilhando SQLite sob alto volume de mensagens e grupos) e **não** devem ser enviados como PR para o repositório oficial sem adaptação.

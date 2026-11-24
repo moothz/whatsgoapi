@@ -382,6 +382,16 @@ func GetMessageType(waMsg *waE2E.Message) string {
 		return fmt.Sprintf("image %s", waMsg.GetImageMessage().GetMimetype())
 	case waMsg.StickerMessage != nil:
 		return fmt.Sprintf("sticker %s", waMsg.GetStickerMessage().GetMimetype())
+	case waMsg.AudioStickerMessage != nil:
+		if inner := waMsg.GetAudioStickerMessage().GetMessage(); inner != nil {
+			return GetMessageType(inner)
+		}
+		return "audio sticker"
+	case waMsg.LottieStickerMessage != nil:
+		if inner := waMsg.GetLottieStickerMessage().GetMessage(); inner != nil {
+			return GetMessageType(inner)
+		}
+		return "lottie sticker"
 	case waMsg.VideoMessage != nil:
 		return fmt.Sprintf("video %s", waMsg.GetVideoMessage().GetMimetype())
 	case waMsg.PtvMessage != nil:

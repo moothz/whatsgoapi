@@ -43,6 +43,26 @@ func TestUnwrapMediaMessageNested(t *testing.T) {
 	if kind != "video" || downloadable == nil || mimetype != "video/mp4" {
 		t.Fatalf("expected unwrapped video/mp4, got kind=%q dl=%v mime=%q", kind, downloadable != nil, mimetype)
 	}
+
+	audioSticker := &waE2E.Message{
+		AudioStickerMessage: &waE2E.FutureProofMessage{
+			Message: &waE2E.Message{
+				StickerMessage: &waE2E.StickerMessage{
+					Mimetype: proto.String("image/webp"),
+					Audio: &waE2E.StickerMessage_AudioMessage{
+						AudioMessage: &waE2E.AudioMessage{
+							Mimetype: proto.String("audio/ogg; codecs=opus"),
+						},
+					},
+				},
+			},
+		},
+	}
+	unwrappedSticker := unwrapMediaMessage(audioSticker)
+	sKind, sDl, sMime := resolveDownloadTarget(unwrappedSticker)
+	if sKind != "sticker" || sDl == nil || sMime != "image/webp" {
+		t.Fatalf("expected unwrapped sticker image/webp, got kind=%q dl=%v mime=%q", sKind, sDl != nil, sMime)
+	}
 }
 
 func TestDownloadMediaUsesViewOnceCacheWhenNoURL(t *testing.T) {
